@@ -1,118 +1,77 @@
 # AgentTrace
 
-Codex rollout JSONL 本地分析与回放工具。界面采用会话列表、对话回放、统计详情三栏布局。上传的日志在浏览器内处理，不上传到服务器。
+English | [简体中文](README.zh-CN.md)
 
-## 导入并查看日志
+AgentTrace is a local viewer for Codex rollout JSONL files. Replay conversations and tool calls, inspect raw records, and compare session metrics with attached Codex Trace data. Files you upload are parsed in the browser and are not sent to the local server.
 
-1. 运行 `npm ci` 安装依赖，再运行 `npm start`。打开 `http://127.0.0.1:8789`。
-2. 点击 **上传会话文件**，或把 `.jsonl` 文件拖到页面。
-3. 在左侧切换已导入的会话。搜索框筛选当前会话列表。
-4. 在中间切换 **Conversation**、**Events**、**Tools**、**Tokens** 和 **Trace**。
-5. 在右侧切换 **Overview**、**Metrics** 和 **Details**，查看全会话统计或原始记录。
+## Get started
 
-## 启动与 Settings
-
-运行 `npm start`，打开 `http://127.0.0.1:8789`。通过 `npm start -- --port 8790` 可更改端口。
-
-左下角 Settings 仅保存 Codex 会话目录、Trace 目录和额外会话目录。保存后在 Session 顶部刷新，或开启每 10 秒自动刷新。会话目录按年、月、日递归扫描 `rollout-*.jsonl`。列表先加载元数据，选中会话后读取完整 rollout 和严格匹配的 Trace。一个会话可以关联多个 Trace。未匹配和冲突项列入诊断。
-
-配置保存在本机 `.agenttrace/settings.json`，不进入源码。首次没有配置时可由 `CODEX_ROLLOUT_TRACE_ROOT` 提供 Trace 默认目录；保存的 Settings 优先。上传的文件仅在当前页面有效，在浏览器解析，不传到服务器。需要扫描的额外目录应写入 Settings。
-
-## 打开 Codex Trace 目录
-
-在 Settings 配置一个 bundle 目录，或包含多个 bundle 的父目录。目录由 `manifest.json`、`trace.jsonl` 和关联的 `payloads/*.json` 组成。工具只读取 manifest 与事件实际引用的 payload。
-
-在本地启动时使用已有 Trace 根目录。
+With Node.js 18 or later, run:
 
 ```sh
-CODEX_ROLLOUT_TRACE_ROOT="/Users/zhongsjie/Documents/Repository/CMB-Repository/x-agent/reports/codex-traces" npm start
+npm ci
+npm start
 ```
 
-然后打开 `http://127.0.0.1:8789`。也可以使用 `npm start -- --port 8081`。本地服务递归扫描配置的会话目录，并按选中的会话读取完整日志。没有任意文件路径读取接口。
+Open [http://127.0.0.1:8789](http://127.0.0.1:8789). The server builds and serves the Vue page in memory. You do not need a separate build command or a `dist/` directory. To change the port, run `npm start -- --port 8790`.
 
-在 **Trace** 标签中查看模型请求和响应、每次响应 token、工具调度区间、Runtime 事件区间、工具报告执行耗时、线程和解析诊断。关联 payload 使用已有的格式化、高亮、复制和展开查看器。缺失或损坏的 payload 保留诊断，未知事件仍保存在原始记录中。
+1. Click **Upload session files**, or drop `.jsonl` files onto the page.
+2. Select a session in the sidebar. Use the search field to filter sessions by filename or model.
+3. Use **Conversation**, **Events**, **Tools**, **Tokens**, and **Trace** to inspect the session. **Overview**, **Metrics**, and **Details** show information about the whole session.
 
-Trace 作为真实 rollout 会话的附件展示。未匹配的 Trace 列在目录诊断里，不生成会话。可读的 reasoning 内容统一标为 **深度思考**。
+## Scan local session and Trace directories
 
-Trace 第一条非空记录中的 rollout_id 或 root_thread_id 必须与 rollout 的 session_meta 身份完全一致，并与 manifest 中的身份声明一致。冲突、缺失或重复会话 ID 均不关联，不按文件名、trace_id 或时间猜测。关联后 rollout 的统计保留原值，Trace 响应统计另列，不重复相加。导出只包含当前选中会话及其关联 bundle，重新打开报告不需要原目录。
+Open **Settings** to enter the Codex session directory, any additional session directories, and the Trace directory. Save your settings, then refresh the session list. You can also enable automatic refresh every 10 seconds. AgentTrace recursively scans the session directories for `rollout-*.jsonl` files. The list loads metadata first. Selecting a session loads the full rollout and its matching Trace bundles.
 
-本次案例包含 17 条 Trace 事件、14 个关联 payload、1 个回合、2 次模型调用、1 次工具调用。模型调用耗时为 4.288 秒和 4.276 秒。响应累计 63,988 tokens，输入 63,652，输出 336，缓存输入 30,720，深度思考输出 118。工具调度至结果区间为 373 ms，Runtime 事件区间为 2 ms，工具报告执行耗时为 0.184584 ms。三种工具时间分别保留。
+The server stores settings locally in `.agenttrace/settings.json` and listens only on the loopback address. To set the initial Trace directory before any settings have been saved, run:
 
-## Conversation 与 Events
+```sh
+CODEX_ROLLOUT_TRACE_ROOT="/path/to/codex-traces" npm start
+```
 
-Conversation 提供两个独立来源。模型对话条目来自 `response_item`，客户端消息来自 `event_msg` 中的用户、助手和深度思考通知。默认使用模型条目，只有客户端消息的日志默认使用客户端来源。混合日志不会自动将两种来源拼接。
+A Trace directory can contain a single bundle or subdirectories with multiple bundles. Each bundle includes `manifest.json`, `trace.jsonl`, and any referenced payload files. AgentTrace reads only the files the bundle references. The session identity in the first nonempty Trace record must match the rollout's `session_meta` and agree with the manifest. AgentTrace reports missing, conflicting, or ambiguous matches in the directory diagnostics. It does not match by filename or timestamp.
 
-Events 独立展示运行事件，包括消息通知、生命周期、工具阶段、配置、审批、错误和用量。Conversation 的来源选择、搜索和显示选项不会删除 Events 中的记录。正文相同、时间接近或属于同一回合，都不作为消息相同的证据。
+Use **Trace** to view model requests and responses, response token counts, tool execution stages, threads, and diagnostics. Open **Request payload** to inspect a request snapshot. Trace response usage is shown separately from rollout totals.
 
-每个投影保留来源行、记录类型及结构化内容。明确的条目身份可以建立关联，缺少身份时保持独立。消息统计采用固定来源，优先模型消息，无模型消息时采用客户端消息。切换 Conversation 来源不改变总量；Token 和工具耗时独立统计。Trace 请求快照采用独立来源，保留每次请求的快照与 payload 引用，不按文本合并，也不计入用户消息数量。
+## Replay and inspect a session
 
-## 控制回放
+- **Conversation** keeps model messages from `response_item` separate from client messages from `event_msg`. It defaults to model messages when present and falls back to client messages. Switching the source does not change the session's message count. **Events** lists runtime records separately.
+- Sessions open at the end of the timeline. Press **Space** or **K** to play or pause, and use the left and right arrow keys to move between event boundaries. You can also drag the timeline or change playback speed. Events with the same timestamp appear together.
+- Tool arguments appear when the call starts. Results appear only when the matching result reaches the playback position. Seeking backward hides results that have not arrived yet. The session metrics do not change with the playback position.
+- Open **Details → Browse raw records** to search and filter the entire JSONL, including malformed lines. The viewer shows 50 records per page. Expand an inline preview to change the display language, switch between formatted and raw text, toggle wrapping, or copy the full source. Logs display as text; AgentTrace does not execute commands or scripts from logs.
 
-导入后默认停在末尾，便于立即阅读。点击播放从头开始。上一条、下一条按事件时间边界跳转。相同时间戳的事件一起显示。
+## Export an offline report
 
-拖动进度可以前后定位。工具输入在调用开始时可见，结果在对应返回记录到达时才显示。向后拖动会隐藏尚未到达的结果。工具详情可展开，并可复制已显示的文本。
+Select a session and click **Export**. The downloaded HTML contains the viewer, the selected session's original JSONL, and its attached Trace bundles. Open the file directly in a browser without the local server or a network connection. Export does not modify the original logs or include other sessions.
 
-键盘支持空格或 K 播放与暂停，左右方向键逐事件跳转。输入框内不拦截快捷键。速度切换、播放、暂停和进度条使用同一个播放器状态。
+## Understand the metrics
 
-缺少时间戳时使用明确标注的演示时间。演示时间不写入日志实测耗时，不估算 token。
-
-## 阅读原始记录与代码内容
-
-在 **Details** 中打开原始记录浏览器。大尺寸查看区按原始 JSONL 行列出记录，支持内容搜索、事件类型筛选和每页 50 条分页。选择一条记录即可查看完整内容。解析失败的非空行也保留，不会因解析错误消失。
-
-选中事件、调用参数、已返回的工具结果、会话元数据与上下文使用同一种代码查看器。内嵌预览保持紧凑，点击展开可使用更大的阅读空间。完整查看区提供语言切换、格式化与原文切换、自动换行，以及复制原文和复制当前显示文本。
-
-JSON 与 JSONL 提供实际缩进格式化。其他支持的语言提供词法高亮，保留原始缩进。无法解析的 JSON 保留原文并显示提示。语言识别不确定时可以手动选择，未知语言按纯文本显示。
-
-格式化文本与原始内容分开保存。复制原文使用完整原始内容，不受预览截断影响。代码内容只作为文本展示，不执行其中的脚本。原始记录浏览器显示全会话记录，工具回放视图仍按当前进度隐藏尚未返回的结果。
-
-## 导出离线报告
-
-在页面中选择会话后点击 **Export**。报告将选中的原始 JSONL、关联的 Trace 和查看器放在一个 HTML 文件里。无需本地服务即可重新打开。原始日志不会被修改。
-
-报告保留原始上下文和工具输出。回放只显示记录，不执行其中的命令。
-
-## 启动要求与验证
-
-使用 Node.js 18 或更新版本。`npm start` 在内存中编译并提供 Vue 页面。无需运行构建命令，也无需保留 `dist/`。本地服务不再提供旧的 `/report.html` 或 `/dist/` 路径。
-
-- 运行 `npm test` 执行全量 Node 测试。
-- 运行 `npm run verify:framework` 检查内存生成的页面及单文件 HTML 格式。
-- 安装可通过 Node 加载的 Playwright 和 Chromium 后，运行 `npm run test:browser` 检查本地服务和离线报告。
-
-## 数据口径
-
-| 信息 | 定义 |
+| Metric | How AgentTrace calculates it |
 | --- | --- |
-| 记录跨度 | 首末有效日志时间戳的差。 |
-| 回合耗时 | 优先使用 `duration_ms`，否则取回合开始与结束的差。 |
-| 消息数 | 会话中的用户消息与助手回复，不含推理和工具记录。 |
-| 工具耗时 | 通过 `call_id` 配对的调用开始至结果落盘区间。 |
-| 工具报告耗时 | MCP 等事件单独提供的执行时间，与调用区间分开展示。 |
-| 并行 | 已知工具区间发生重叠，连续展示不代表并行。 |
-| Token | `total_token_usage` 的累计增量，重复快照不重复计数。 |
-| 缓存与推理 | 分别是输入和输出的子集，不额外加入总数。 |
+| Recorded span | The time between the first and last valid recorded timestamps. |
+| Turn duration | The reported `duration_ms` when present, otherwise the time between the turn boundaries. |
+| Messages | User and assistant messages, excluding reasoning and tools. Model messages take precedence over client messages. |
+| Tool duration | The interval between a call and its result, paired by call identity. Runtime and tool-reported durations are shown separately. Overlapping calls are not additive wall-clock time. |
+| Tokens | Increments in `total_token_usage`, without counting repeated snapshots twice. Cached input and reasoning output are subsets, not extra tokens. Missing totals are not estimated. |
 
-右侧统计是全会话事实，回放游标只控制中间过程的可见状态。首个 token 快照可能包含本文件开始前的历史用量。日志不提供单条消息的用量时不做估算，没有用量记录时显示未知。
+Recorded message timestamps do not measure model generation time. If a session lacks timestamps needed for replay, the viewer labels its timeline as presentation time and does not use that time for recorded durations.
 
-消息时间是记录时间，不等于模型生成耗时。默认对话隐藏任务开始前的系统和环境说明，原始信息保留在事件与详情中。单份 rollout 不能完整还原子 Agent、hook 或网络内部过程。独立 Trace 目录可补充其实际记录的请求、执行阶段和线程信息。
+## Development and verification
 
-本次真实日志包含 24 条记录、1 个回合、2 条用户和助手消息、2 次工具调用。记录跨度为 19.613 秒，回合报告耗时为 19.191 秒。累计 55,479 tokens，输入 55,021，输出 458，缓存输入 26,880，推理输出 176。工具区间为 440 ms 和 324 ms，无重叠。
+| Directory | Contents |
+| --- | --- |
+| [`src/client/`](src/client/) | Vue components, browser state, HTML template, and styles. |
+| [`src/core/`](src/core/) | Shared rollout and Trace parsers, replay logic, and document formatting. The page embeds these modules for offline use, and Node can load them directly. |
+| [`src/server/`](src/server/) | Local HTTP API, session library, Trace file loader, and in-memory page assembly. |
+| [`tests/`](tests/) and [`checks/`](checks/) | Node tests and Playwright browser checks. |
 
-## 实现边界
+`npm start` runs `src/server/start.mjs`. The root holds project configuration and documentation. Keep `package-lock.json` in Git. The [`.gitignore`](.gitignore) excludes installed dependencies, local settings and work files, environment files, test output, `rollout-*.jsonl` logs, and exported `*-replay.html` reports. Do not commit custom-named logs or reports that contain private data.
 
-播放行为由本项目独立实现。代码和构建产物不包含其他项目的播放器源码、模板、iframe 或运行时依赖。
+```sh
+npm test
+npm run verify:framework
+```
 
-- `parser.js` 保留 Codex 原始记录，独立提取模型条目、客户端消息、运行事件、调用与用量。
-- `replay.js` 构建共享回放时间线，分别投影各视图，并管理播放状态与结果可见性。
-- `formatter.js` 独立管理代码文档、格式化、高亮和原始记录索引。
-- `trace-parser.js` 解析可移植 Trace bundle，分别生成模型条目、请求快照与运行事件。
-- `trace-loader.mjs` 在 Node 边界读取已配置目录和引用文件。
-- `start.mjs` 提供仅限本机的 HTTP 服务和会话接口，不读写构建产物。
-- `page.mjs` 通过 Vite 在内存中编译 Vue，并将脚本和样式内联到页面。
-- `frontend/src/App.vue` 是唯一的界面入口。播放、内容、检查器和设置由 Vue 组件渲染。
-- `frontend/src/useWorkspace.js` 管理会话、Trace 关联和播放器状态，不操作界面 DOM。
+The Node suite covers parsing, replay, Trace matching, and the local API. The framework check verifies that the assembled page has no external scripts or stylesheets and that embedded log text remains data. With Playwright available to Node and Chromium installed, run `npm run test:browser` to exercise the local service and exported HTML in a real browser.
 
-Codex 格式参考 [App Server 文档](https://developers.openai.com/codex/app-server/)及[官方 rollout 持久化策略](https://github.com/openai/codex/blob/main/codex-rs/rollout/src/policy.rs)。具体字段以实际日志和运行版本为准。
-
-Node 测试覆盖播放状态、来源选择、工具结果可见性、解析统计和生成文件。浏览器检查直接打开生成的 HTML，覆盖文件导入、会话切换和下载重开。
+For the Codex log format, see the [App Server documentation](https://developers.openai.com/codex/app-server/) and [rollout persistence policy](https://github.com/openai/codex/blob/main/codex-rs/rollout/src/policy.rs).

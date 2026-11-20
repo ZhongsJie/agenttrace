@@ -1,7 +1,26 @@
-dist/
-.DS_Store
-
-.work/
+# Dependencies and package manager logs
 node_modules/
+npm-debug.log*
 
-.agenttrace/
+# Build and test output
+/dist/
+/coverage/
+/playwright-report/
+/test-results/
+*.log
+*-replay.html
+
+# Local environment and AgentTrace data
+.env
+.env.*
+!.env.example
+!.env.*.example
+/.agenttrace/
+/.work/
+rollout-*.jsonl
+
+# Local tooling and operating system files
+/.agents/
+/.claude/
+.DS_Store
+Thumbs.db

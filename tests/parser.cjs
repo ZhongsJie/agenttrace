@@ -1,8 +1,8 @@
-const {test}=require('node:test');const assert=require('node:assert/strict');const {parseRollout}=require('../parser.js');
+const {test}=require('node:test');const assert=require('node:assert/strict');const {parseRollout}=require('../src/core/parser.js');
 const r=(ms,type,payload)=>({timestamp:new Date(1700000000000+ms).toISOString(),type,payload});const parse=rs=>parseRollout(rs.map(x=>JSON.stringify(x)).join('\n'));
 test('pairs call IDs, marks overlap and keeps execution duration distinct',()=>{const s=parse([r(0,'response_item',{type:'function_call',name:'a',call_id:'a'}),r(10,'response_item',{type:'function_call',name:'b',call_id:'b'}),r(20,'event_msg',{type:'mcp_tool_call_end',call_id:'a',duration:{secs:0,nanos:1000000}}),r(30,'response_item',{type:'function_call_output',call_id:'a',output:'a'}),r(40,'response_item',{type:'function_call_output',call_id:'b',output:'b'})]);assert.equal(s.tools.length,2);assert.equal(s.tools[0].duration,30);assert.equal(s.tools[0].execution,1);assert.equal(s.tools[0].parallel,s.tools[1].parallel);});
 test('keeps model items and client messages separate while accumulating usage',()=>{const usage=n=>({type:'token_count',info:{total_token_usage:{total_tokens:n}}});const s=parse([r(0,'response_item',{type:'message',role:'user',content:[{text:'hello'}]}),r(0,'event_msg',{type:'user_message',message:'hello'}),r(1,'event_msg',usage(100)),r(2,'event_msg',usage(100)),r(3,'event_msg',usage(150))]);assert.equal(s.projections.modelItems.length,1);assert.equal(s.projections.clientMessages.length,1);assert.equal(s.projections.runtimeEvents.length,4);assert.equal(s.total.total_tokens,150);assert.equal(s.usage.length,2);assert.equal(s.usage[1].delta.total_tokens,50);});
-test('handles corrupted JSON, missing output and encrypted reasoning',()=>{const s=parseRollout('bad\n'+JSON.stringify(r(0,'response_item',{type:'function_call',call_id:'a'}))+'\n'+JSON.stringify(r(1,'response_item',{type:'reasoning',encrypted_content:'secret'})));assert.equal(s.warnings.length,1);assert.equal(s.tools[0].status,'未完成');assert.match(s.steps[1].body,/加密/);});
+test('handles corrupted JSON, missing output and encrypted reasoning',()=>{const s=parseRollout('bad\n'+JSON.stringify(r(0,'response_item',{type:'function_call',call_id:'a'}))+'\n'+JSON.stringify(r(1,'response_item',{type:'reasoning',encrypted_content:'secret'})));assert.equal(s.warnings.length,1);assert.equal(s.tools[0].status,'Incomplete');assert.match(s.steps[1].body,/Only encrypted content is available/);});
 
 test('parallel groups use connected overlapping intervals and reject adjacent or incomplete intervals',()=>{
  const s=parse([
@@ -28,7 +28,7 @@ test('malformed record boundaries produce warnings instead of crashing',()=>{
 
 test('orphan result never acquires an invented start after multiple result events',()=>{
  const s=parse([r(0,'event_msg',{type:'mcp_tool_call_end',call_id:'orphan',result:{Ok:'found'}}),r(5,'response_item',{type:'function_call_output',call_id:'orphan',output:'found'})]);
- assert.equal(s.tools[0].duration,null);assert.equal(s.tools[0].status,'缺少调用起点');assert.equal(s.tools[0].parallel,undefined);
+ assert.equal(s.tools[0].duration,null);assert.equal(s.tools[0].status,'Missing call start');assert.equal(s.tools[0].parallel,undefined);
 });
 
 test('model and client projections retain independent messages without text or turn suppression',()=>{
@@ -76,7 +76,7 @@ test('everything before the first task starts is a reminder without guessing fro
   r(0,'event_msg',{type:'task_started',turn_id:'task'}),
   r(0,'response_item',{type:'message',role:'user',content:[{text:'actual request'}]}),
  ]);
- assert.deepEqual(s.projections.contexts.map(id=>s.steps[id].title),['用户提示','用户提示','用户提示']);
+ assert.deepEqual(s.projections.contexts.map(id=>s.steps[id].title),['User prompt','User prompt','User prompt']);
  assert.deepEqual(s.projections.modelItems.map(id=>s.steps[id].body),['actual request']);
  assert.equal(s.projections.clientMessages.length,0);
  assert.equal(s.projections.runtimeEvents.length,2);

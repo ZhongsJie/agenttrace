@@ -1,7 +1,7 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const Trace = require('../trace-parser.js');
-const Replay = require('../replay.js');
+const Trace = require('../src/core/trace-parser.js');
+const Replay = require('../src/core/replay.js');
 
 function fixture() {
   const manifest = {schema_version: 1, trace_id: 'trace-one', rollout_id: 'rollout-one', root_thread_id: 'root', raw_event_log: 'trace.jsonl', payloads_dir: 'payloads'};
@@ -42,24 +42,10 @@ test('bundle paths return only safe referenced payloads and preserve malformed-l
   const result = Trace.paths(b.files['manifest.json'], source);
   assert.equal(result.eventLog, 'trace.jsonl');
   assert.equal(result.payloads.length, 10);
-  assert.ok(result.warnings.some(warning => warning.includes('bad') || warning.includes('第 14 行')));
+  assert.ok(result.warnings.some(warning => warning.includes('bad') || warning.includes('Trace line 14')));
   assert.ok(result.warnings.some(warning => warning.includes('../outside')));
   assert.throws(() => Trace.paths('{bad'));
   assert.throws(() => Trace.paths('{"raw_event_log":"../outside"}'));
-});
-
-test('directory collection supports parent roots and standalone bundles, without unrelated files', () => {
-  const f = fixture(); const b = f.bundle();
-  const entries = Object.entries(b.files).map(([path, text]) => ({path: `root/bundle-one/${path}`, text}));
-  entries.push({path: 'root/bundle-one/payloads/unreferenced.json', text: '{"private":true}'});
-  entries.push({path: '../escape.json', text: '{}'});
-  const grouped = Trace.collectBundles(entries);
-  assert.equal(grouped.bundles.length, 1);
-  assert.equal(grouped.bundles[0].name, 'bundle-one');
-  assert.equal(grouped.bundles[0].files['trace.jsonl'], b.files['trace.jsonl']);
-  assert.equal(Object.hasOwn(grouped.bundles[0].files, 'payloads/unreferenced.json'), false);
-  assert.ok(grouped.warnings.length);
-  assert.equal(Trace.collectBundles(Object.entries(b.files).map(([path, text]) => ({path, text}))).bundles.length, 1);
 });
 
 test('trace independently projects one native conversation and separate measured inference/tool stages', () => {
@@ -74,6 +60,8 @@ test('trace independently projects one native conversation and separate measured
   assert.equal(session.tools[0].body, '{"cmd":"ls"}');
   assert.equal(session.tools[0].duration, 20);
   assert.equal(session.tools[0].execution, 0.184584);
+  assert.equal(session.tools[0].status, 'Completed');
+  assert.equal(traceInfo.tools[0].status, 'completed');
   assert.equal(traceInfo.tools[0].runtimeDurationMs, 2);
   assert.equal(session.tools[0].output, 'hello');
   assert.equal(session.total.total_tokens, 245);
@@ -85,7 +73,7 @@ test('trace independently projects one native conversation and separate measured
   assert.equal(session.projections.modelItems.some(id => session.steps[id].kind === 'user'), false);
   assert.equal(Replay.buildReplay(session).metrics.messages, 1);
   assert.equal(session.steps.find(step => step.kind === 'user').origin, 'request_snapshot');
-  assert.equal(session.steps.find(step => step.kind === 'reasoning').title, '深度思考');
+  assert.equal(session.steps.find(step => step.kind === 'reasoning').title, 'Reasoning');
   assert.deepEqual(session.steps.filter(step => step.kind === 'assistant').map(step => step.body), ['Done']);
   assert.equal(session.records[4].line, 5);
   assert.equal(traceInfo.payloads['payloads/2.json'].source, f.files['payloads/2.json']);
@@ -117,7 +105,7 @@ test('missing payloads keep raw events, spans and diagnostics without invented u
   assert.equal(session.total.total_tokens, 135);
   assert.equal(Object.hasOwn(session.tools[0], 'output'), false);
   assert.ok(traceInfo.diagnostics.some(message => message.includes('payloads/3.json')));
-  assert.equal(traceInfo.payloads['payloads/3.json'].error, '缺少 payload payloads/3.json');
+  assert.equal(traceInfo.payloads['payloads/3.json'].error, 'Missing payload payloads/3.json');
   assert.equal(traceInfo.payloads['payloads/3.json'].source, null);
 });
 
@@ -127,11 +115,13 @@ test('orphan tool results and incomplete starts preserve their missing endpoints
   const parsed = Trace.parseBundle(f.bundle());
   assert.equal(parsed.session.tools[0].hasStart, false);
   assert.equal(parsed.session.tools[0].duration, null);
+  assert.equal(parsed.session.tools[0].status, 'Missing call start');
   assert.equal(parsed.session.tools[0].output, 'hello');
   const incomplete = fixture();incomplete.events.splice(8, 1);
   const tool = Trace.parseBundle(incomplete.bundle()).session.tools[0];
   assert.equal(tool.hasStart, true);
   assert.equal(tool.duration, null);
+  assert.equal(tool.status, 'Incomplete');
   assert.equal(Object.hasOwn(tool, 'output'), false);
 });
 
@@ -165,8 +155,8 @@ test('malformed lines, unsupported schema and invalid times remain diagnosable',
   assert.equal(session.records[0].line, 3);
   assert.equal(traceInfo.events[0].type, 'unknown_event');
   assert.ok(session.warnings.some(warning => warning.includes('schema_version')));
-  assert.ok(session.warnings.some(warning => warning.includes('第 2 行')));
-  assert.ok(session.warnings.some(warning => warning.includes('时间戳')));
+  assert.ok(session.warnings.some(warning => warning.includes('Trace line 2')));
+  assert.ok(session.warnings.some(warning => warning.includes('timestamp in milliseconds')));
   assert.equal(Replay.buildReplay(session).timing, 'presentation');
 });
 
@@ -175,12 +165,12 @@ test('unsafe references never resolve inherited or outside payload content', () 
   const inherited = Object.create(b.files);inherited['manifest.json'] = b.files['manifest.json'];inherited['trace.jsonl'] = b.files['trace.jsonl'];
   const parsed = Trace.parseBundle({...b, files: inherited});
   assert.equal(parsed.session.total.total_tokens, undefined);
-  assert.ok(parsed.traceInfo.diagnostics.some(warning => warning.includes('缺少 payload')));
+  assert.ok(parsed.traceInfo.diagnostics.some(warning => warning.includes('Missing payload')));
   const index = f.events.findIndex(event => event.payload.type === 'inference_started');
   f.events[index].payload.request_payload.path = '../outside.json';
   const unsafe = Trace.parseBundle(f.bundle());
   assert.equal(unsafe.traceInfo.inferences[0].requestPath, null);
-  assert.ok(unsafe.traceInfo.diagnostics.some(warning => warning.includes('拒绝 payload')));
+  assert.ok(unsafe.traceInfo.diagnostics.some(warning => warning.includes('Rejected unsafe payload path')));
 });
 
 
@@ -198,7 +188,7 @@ test('malformed lifecycle events without turn identity never fabricate a turn or
   assert.ok(session.warnings.some(warning => warning.includes('codex_turn_id')));
   assert.equal(session.records.length, 3);
   assert.equal(traceInfo.inferences[0].durationMs, null);
-  assert.ok(traceInfo.diagnostics.some(warning => warning.includes('时间戳')));
+  assert.ok(traceInfo.diagnostics.some(warning => warning.includes('timestamp in milliseconds')));
   assert.equal(Replay.buildReplay(session).timing, 'presentation');
 });
 
@@ -208,9 +198,9 @@ test('a present but empty payload remains distinct from an absent payload', () =
   delete bundle.files['payloads/9.json'];
   const {traceInfo} = Trace.parseBundle(bundle);
   assert.equal(traceInfo.payloads['payloads/3.json'].source, '');
-  assert.match(traceInfo.payloads['payloads/3.json'].error, /无法解析/);
+  assert.match(traceInfo.payloads['payloads/3.json'].error, /Could not parse payload/);
   assert.equal(traceInfo.payloads['payloads/9.json'].source, null);
-  assert.match(traceInfo.payloads['payloads/9.json'].error, /缺少/);
+  assert.match(traceInfo.payloads['payloads/9.json'].error, /Missing payload/);
 });
 
 
@@ -255,13 +245,13 @@ test('ambiguous or unmatched protocol mirrors preserve raw events without creati
   ], {type: 'task_complete', turn_id: 'same-turn', duration_ms: 999}));
   assert.equal(ambiguous.session.turns.length, 2);
   assert.ok(ambiguous.session.turns.every(turn => turn.reportedDurationMs == null));
-  assert.ok(ambiguous.traceInfo.diagnostics.some(message => message.includes('无法唯一关联')));
+  assert.ok(ambiguous.traceInfo.diagnostics.some(message => message.includes('Could not uniquely match a mirrored protocol event')));
   assert.equal(ambiguous.traceInfo.events.length, 5);
   const unmatched = Trace.parseBundle(protocolCorrelationFixture([
     ['root', 'root-turn', 0, 40],
   ], {type: 'task_complete', turn_id: 'unobserved-turn', duration_ms: 999}));
   assert.equal(unmatched.session.turns.length, 1);
-  assert.ok(unmatched.traceInfo.diagnostics.some(message => message.includes('无法关联')));
+  assert.ok(unmatched.traceInfo.diagnostics.some(message => message.includes('Could not match a mirrored protocol event')));
 });
 
 test('explicit nested protocol thread or session identity disambiguates reused turn IDs', () => {

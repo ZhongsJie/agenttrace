@@ -2,12 +2,12 @@
   'use strict';
 
   const languages = Object.freeze([
-    {id: 'auto', label: '自动识别'}, {id: 'json', label: 'JSON'},
+    {id: 'auto', label: 'Auto-detect'}, {id: 'json', label: 'JSON'},
     {id: 'jsonl', label: 'JSONL'}, {id: 'javascript', label: 'JavaScript'},
     {id: 'typescript', label: 'TypeScript'}, {id: 'python', label: 'Python'},
     {id: 'bash', label: 'Shell'}, {id: 'yaml', label: 'YAML'},
     {id: 'xml', label: 'XML / HTML'}, {id: 'markdown', label: 'Markdown'},
-    {id: 'text', label: '纯文本'},
+    {id: 'text', label: 'Plain text'},
   ].map(language => Object.freeze(language)));
   const supported = new Set(languages.map(language => language.id));
   const aliases = {js: 'javascript', ts: 'typescript', py: 'python', sh: 'bash', shell: 'bash', html: 'xml', md: 'markdown', yml: 'yaml', plaintext: 'text', plain: 'text'};
@@ -122,7 +122,7 @@
     let warning = null;
     if (language === 'json') {
       try { const value = parse(source); if (!raw) text = JSON.stringify(value, null, 2); }
-      catch { warning = 'JSON 无法解析，已保留原文。'; }
+      catch { warning = 'Could not parse JSON. The original text was kept.'; }
     } else if (language === 'jsonl') {
       const invalid = [];
       const formatted = source.split(/\r?\n/).map((line, index) => {
@@ -131,7 +131,7 @@
         catch { invalid.push(index + 1); return line; }
       });
       if (!raw) text = formatted.join('\n');
-      if (invalid.length) warning = `第 ${invalid.join('、')} 行无法解析，已保留这些行的原文。`;
+      if (invalid.length) warning = `Could not parse ${invalid.length === 1 ? 'line' : 'lines'} ${invalid.join(', ')}. The original text was kept.`;
     }
     const lines = highlightedLines(text, language === 'auto' ? 'text' : language);
     return {source, text, language: language === 'auto' ? 'text' : language, html: lines.join('\n'), lines, lineCount: lines.length, warning};

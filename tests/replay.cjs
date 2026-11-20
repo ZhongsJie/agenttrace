@@ -1,7 +1,7 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {parseRollout} = require('../parser.js');
-const {buildReplay, projectReplay, projectViews, reducePlayback, createPlayer, escapeHtml, json} = require('../replay.js');
+const {parseRollout} = require('../src/core/parser.js');
+const {buildReplay, projectReplay, projectViews, reducePlayback, createPlayer, escapeHtml, json} = require('../src/core/replay.js');
 const epoch = 1700000000000;
 const row = (ms, type, payload) => ({timestamp: new Date(epoch + ms).toISOString(), type, payload});
 const message = (role, text) => ({type: 'message', role, content: [{text}]});

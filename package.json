@@ -9,7 +9,7 @@
     "verify:framework": "node --test tests/artifacts.cjs",
     "test:browser": "node --test checks/*.cjs",
     "test": "node --test tests/*.cjs",
-    "start": "node start.mjs"
+    "start": "node src/server/start.mjs"
   },
   "dependencies": {
     "vue": "3.5.13"

@@ -23,9 +23,9 @@
 
   function manifestFrom(source) {
     const manifest = parseJson(source);
-    if (!object(manifest)) throw new Error('manifest.json 必须是对象');
+    if (!object(manifest)) throw new Error('manifest.json must contain a JSON object');
     const eventLog = safePath(manifest.raw_event_log ?? 'trace.jsonl');
-    if (!eventLog) throw new Error('manifest.raw_event_log 不是安全的相对路径');
+    if (!eventLog) throw new Error('manifest.raw_event_log is not a safe relative path');
     return {manifest, eventLog};
   }
 
@@ -35,9 +35,9 @@
       if (!line.trim()) return;
       try {
         const value = JSON.parse(line);
-        if (!object(value) || !object(value.payload) || typeof value.payload.type !== 'string') throw new Error('trace 记录缺少 payload.type');
+        if (!object(value) || !object(value.payload) || typeof value.payload.type !== 'string') throw new Error('Trace record is missing payload.type');
         rows.push({value, line: index + 1});
-      } catch (error) { warnings.push(`trace 第 ${index + 1} 行：${error.message}`); }
+      } catch (error) { warnings.push(`Trace line ${index + 1}: ${error.message}`); }
     });
     return rows;
   }
@@ -47,7 +47,7 @@
     if (object(value) && own(value, 'raw_payload_id') && own(value, 'path')) {
       const path = safePath(value.path);
       if (path) result.add(path);
-      else warnings.push(`trace 第 ${line} 行拒绝 payload 路径 ${String(value.path)}`);
+      else warnings.push(`Trace line ${line}: Rejected unsafe payload path ${String(value.path)}`);
     }
     for (const child of Object.values(value)) referencePaths(child, result, warnings, line);
   }
@@ -55,51 +55,18 @@
   function paths(manifestText, traceText = '') {
     const {manifest, eventLog} = manifestFrom(manifestText);
     const warnings = [];
-    if (manifest.schema_version !== 1) warnings.push(`不支持的 trace schema_version ${String(manifest.schema_version)}，按已知字段尽力解析。`);
+    if (manifest.schema_version !== 1) warnings.push(`Unsupported trace schema_version ${String(manifest.schema_version)}. Attempting to parse known fields.`);
     const payloads = new Set();
     for (const row of traceRows(traceText, warnings)) referencePaths(row.value.payload, payloads, warnings, row.line);
     return {eventLog, payloads: [...payloads].sort(), warnings};
   }
 
-  function collectBundles(entries) {
-    const files = new Map();
-    const warnings = [];
-    for (const entry of entries) {
-      const path = safePath(entry?.path);
-      if (!path || typeof entry.text !== 'string') { warnings.push(`忽略无效目录文件 ${String(entry?.path)}`); continue; }
-      if (files.has(path)) warnings.push(`重复文件路径 ${path}，保留最后一份。`);
-      files.set(path, entry.text);
-    }
-    const bundles = [];
-    for (const [manifestPath, manifestSource] of files) {
-      if (manifestPath !== 'manifest.json' && !manifestPath.endsWith('/manifest.json')) continue;
-      const prefix = manifestPath.slice(0, -'manifest.json'.length);
-      try {
-        const first = paths(manifestSource);
-        const source = files.get(prefix + first.eventLog);
-        if (source == null) throw new Error(`缺少 ${first.eventLog}`);
-        const references = paths(manifestSource, source);
-        const selected = Object.create(null);
-        selected['manifest.json'] = manifestSource;
-        selected[references.eventLog] = source;
-        const bundleWarnings = [...references.warnings];
-        for (const path of references.payloads) {
-          if (files.has(prefix + path)) selected[path] = files.get(prefix + path);
-          else bundleWarnings.push(`缺少 payload ${path}`);
-        }
-        bundles.push({name: prefix.replace(/\/$/, '').split('/').pop() || 'codex-trace', files: selected, warnings: [...new Set(bundleWarnings)]});
-      } catch (error) { warnings.push(`${manifestPath}：${error.message}`); }
-    }
-    if (!bundles.length && !warnings.length) warnings.push('目录中未找到包含 manifest.json 的 codex-trace bundle。');
-    return {bundles, warnings};
-  }
-
   function parseBundle(bundle) {
     const diagnostics = [...(Array.isArray(bundle.warnings) ? bundle.warnings : [])];
     const files = object(bundle.files) ? bundle.files : {};
-    if (!own(files, 'manifest.json') || typeof files['manifest.json'] !== 'string') throw new Error('trace bundle 缺少 manifest.json');
+    if (!own(files, 'manifest.json') || typeof files['manifest.json'] !== 'string') throw new Error('Trace bundle is missing manifest.json');
     const {manifest, eventLog} = manifestFrom(files['manifest.json']);
-    if (!own(files, eventLog) || typeof files[eventLog] !== 'string') throw new Error(`trace bundle 缺少 ${eventLog}`);
+    if (!own(files, eventLog) || typeof files[eventLog] !== 'string') throw new Error(`Trace bundle is missing ${eventLog}`);
     const source = files[eventLog];
     const references = paths(files['manifest.json'], source);
     diagnostics.push(...references.warnings);
@@ -108,8 +75,8 @@
       const payloadSource = own(files, path) && typeof files[path] === 'string' ? files[path] : null;
       let value = null;
       let error = null;
-      if (payloadSource == null) error = `缺少 payload ${path}`;
-      else { try { value = parseJson(payloadSource); } catch (failure) { error = `payload ${path} 无法解析：${failure.message}`; } }
+      if (payloadSource == null) error = `Missing payload ${path}`;
+      else { try { value = parseJson(payloadSource); } catch (failure) { error = `Could not parse payload ${path}: ${failure.message}`; } }
       if (error) diagnostics.push(error);
       payloads[path] = {path, source: payloadSource, value, error};
     }
@@ -124,7 +91,7 @@
     const rows = traceRows(source, []);
     const rawByLine = new Map(rows.map(row => [row.line, row.value]));
     const records = rows.map(({value, line}) => {
-      if (!validTime(value.wall_time_unix_ms)) diagnostics.push(`trace 第 ${line} 行缺少有效毫秒时间戳。`);
+      if (!validTime(value.wall_time_unix_ms)) diagnostics.push(`Trace line ${line}: Missing a valid timestamp in milliseconds.`);
       return {...value, line, time: validTime(value.wall_time_unix_ms) ? value.wall_time_unix_ms : NaN, timestamp: validTime(value.wall_time_unix_ms) ? new Date(value.wall_time_unix_ms).toISOString() : undefined};
     });
     const events = records.map(record => {
@@ -165,7 +132,7 @@
       const candidates = authoritativeThreads.get(event.turnId) || new Set();
       if (!event.threadId && candidates.size === 1) event.threadId = [...candidates][0];
       event.turnResolved = event.threadId !== null && turnMap.has(turnKey(event.threadId, event.turnId));
-      if (!event.turnResolved) diagnostics.push(`trace 第 ${event.line} 行 protocol 镜像${!event.threadId && candidates.size > 1 ? '无法唯一关联' : '无法关联'}回合 ${event.turnId}，保留原始事件。`);
+      if (!event.turnResolved) diagnostics.push(`Trace line ${event.line}: Could not ${!event.threadId && candidates.size > 1 ? 'uniquely match' : 'match'} a mirrored protocol event to turn ${event.turnId}. The original event was kept.`);
     }
     const first = (target, key, value) => { if (target[key] == null && value != null) target[key] = value; };
     for (const event of ordered) {
@@ -181,7 +148,7 @@
       if (p.type === 'codex_turn_started' && event.turnId) activeTurns.set(event.threadId, event.turnId);
       if (p.type !== 'protocol_event_observed' && !event.turnId && activeTurns.has(event.threadId)) event.turnId = activeTurns.get(event.threadId);
       const turn = p.type === 'protocol_event_observed' ? event.turnResolved ? turnMap.get(turnKey(event.threadId, event.turnId)) : null : ensureTurn(event);
-      if (['codex_turn_started', 'codex_turn_ended'].includes(p.type) && !turn) diagnostics.push(`trace 第 ${event.line} 行缺少 codex_turn_id，保留事件但未创建回合。`);
+      if (['codex_turn_started', 'codex_turn_ended'].includes(p.type) && !turn) diagnostics.push(`Trace line ${event.line}: Missing codex_turn_id. The event was kept without creating a turn.`);
       if (p.type === 'codex_turn_started' && turn) {
         first(turn, 'start', finite(event.time) ? event.time : null);
         first(turn, 'startLine', event.line);
@@ -271,7 +238,7 @@
       if (event.type !== 'protocol_event_observed') continue;
       const protocol = resolved(event.payload.event_payload);
       const kind = {user_message: 'user', agent_message: 'assistant', agent_reasoning: 'reasoning', agent_reasoning_raw_content: 'reasoning'}[protocol?.type];
-      if (kind) add(event.line, kind, kind === 'reasoning' ? '深度思考' : kind, typeof protocol.message === 'string' ? protocol.message : protocol.text || '', {origin: 'client_event', content: protocol, payloadPath: resolvedPath(event.payload.event_payload), itemId: protocol.item_id, channel: protocol.phase});
+      if (kind) add(event.line, kind, kind === 'reasoning' ? 'Reasoning' : kind, typeof protocol.message === 'string' ? protocol.message : protocol.text || '', {origin: 'client_event', content: protocol, payloadPath: resolvedPath(event.payload.event_payload), itemId: protocol.item_id, channel: protocol.phase});
     }
     for (const span of [...inferences].sort((a, b) => (a.startMs ?? Infinity) - (b.startMs ?? Infinity) || (a.startLine ?? Infinity) - (b.startLine ?? Infinity))) {
       const request = span.requestPath && payloads[span.requestPath]?.value;
@@ -280,7 +247,7 @@
       const latest = messages[messages.length - 1];
       const userText = textOf(latest?.content);
       if (latest && span.startLine != null) {
-        add(span.startLine, 'user', '用户', userText, {origin: 'request_snapshot', sourceOrigin: 'request_snapshot', inferenceCallId: span.id, payloadPath: span.requestPath, content: latest.content, itemId: latest.id});
+        add(span.startLine, 'user', 'User', userText, {origin: 'request_snapshot', sourceOrigin: 'request_snapshot', inferenceCallId: span.id, payloadPath: span.requestPath, content: latest.content, itemId: latest.id});
       }
     }
     for (const span of [...inferences].sort((a, b) => (a.endMs ?? Infinity) - (b.endMs ?? Infinity) || (a.endLine ?? Infinity) - (b.endLine ?? Infinity))) {
@@ -289,7 +256,7 @@
       first(span, 'responseId', typeof response?.response_id === 'string' ? response.response_id : null);
       first(span, 'upstreamRequestId', typeof response?.upstream_request_id === 'string' ? response.upstream_request_id : null);
       for (const item of Array.isArray(response?.output_items) ? response.output_items : []) {
-        if (item?.type === 'reasoning') add(span.endLine, 'reasoning', '深度思考', textOf(item.summary) || textOf(item.content) || '未记录明文深度思考。', {inferenceCallId: span.id, payloadPath: span.responsePath, content: item.summary || item.content, itemId: item.id, channel: item.phase || item.channel});
+        if (item?.type === 'reasoning') add(span.endLine, 'reasoning', 'Reasoning', textOf(item.summary) || textOf(item.content) || 'No plaintext reasoning was recorded.', {inferenceCallId: span.id, payloadPath: span.responsePath, content: item.summary || item.content, itemId: item.id, channel: item.phase || item.channel});
         else if (item?.type === 'message' && item.role === 'assistant') add(span.endLine, 'assistant', 'Assistant', textOf(item.content), {inferenceCallId: span.id, payloadPath: span.responsePath, content: item.summary || item.content, itemId: item.id, channel: item.phase || item.channel});
       }
       if (object(response?.token_usage)) {
@@ -298,7 +265,7 @@
           span.tokenUsage = delta;
           for (const [key, value] of Object.entries(delta)) total[key] = (total[key] || 0) + value;
           usage.push({time: eventByLine.get(span.endLine).time, line: span.endLine, delta, total: {...total}, last: {...delta}, baseline: false});
-          add(span.endLine, 'usage', '模型请求 Token 用量', JSON.stringify(delta, null, 2), {usage: delta, inferenceCallId: span.id, payloadPath: span.responsePath});
+          add(span.endLine, 'usage', 'Model request token usage', JSON.stringify(delta, null, 2), {usage: delta, inferenceCallId: span.id, payloadPath: span.responsePath});
         }
       }
     }
@@ -311,7 +278,7 @@
       const line = span.startLine ?? span.endLine;
       if (line == null) continue;
       const argumentsValue = invocation?.payload?.arguments ?? invocation?.arguments ?? invocation?.payload?.input ?? invocation?.payload ?? '';
-      const step = add(line, 'tool', span.name, encode(argumentsValue), {callId: span.id, traceToolId: span.id, hasStart, status: hasStart ? hasEnd ? span.status === 'completed' ? '已完成' : span.status : '未完成' : '缺少调用起点', duration: span.durationMs, execution: span.reportedExecutionMs, payloadPath: span.invocationPath});
+      const step = add(line, 'tool', span.name, encode(argumentsValue), {callId: span.id, traceToolId: span.id, hasStart, status: hasStart ? hasEnd ? span.status === 'completed' ? 'Completed' : span.status : 'Incomplete' : 'Missing call start', duration: span.durationMs, execution: span.reportedExecutionMs, payloadPath: span.invocationPath});
       if (hasEnd) {
         step.end = span.endMs ?? NaN;
         step.resultLine = span.endLine;
@@ -330,8 +297,8 @@
     const turns = [...turnMap.values()];
     for (const turn of turns) {
       turn.duration = turn.reportedDurationMs ?? duration(turn.start, turn.end);
-      if (turn.startLine != null) add(turn.startLine, 'turn', '回合开始', turn.id, {turn: turn.id});
-      if (turn.endLine != null) add(turn.endLine, 'turn', '回合完成', turn.id, {turn: turn.id, duration: turn.duration});
+      if (turn.startLine != null) add(turn.startLine, 'turn', 'Turn started', turn.id, {turn: turn.id});
+      if (turn.endLine != null) add(turn.endLine, 'turn', 'Turn completed', turn.id, {turn: turn.id, duration: turn.duration});
     }
     const rootThread = threadMap.get(manifest.root_thread_id) || [...threadMap.values()][0];
     const metadata = rootThread?.metadataPath && payloads[rootThread.metadataPath]?.value;
@@ -352,7 +319,7 @@
   function rolloutIdentity(meta) {
     const claims = [meta?.id, meta?.session_id].map(identity).filter(Boolean);
     const conflict = new Set(claims).size > 1;
-    return {sessionId: conflict ? null : claims[0] || null, status: conflict ? 'conflict' : claims.length ? 'verified' : 'unresolved', diagnostics: conflict ? ['会话元数据 id 与 session_id 冲突。'] : claims.length ? [] : ['会话缺少元数据 ID。']};
+    return {sessionId: conflict ? null : claims[0] || null, status: conflict ? 'conflict' : claims.length ? 'verified' : 'unresolved', diagnostics: conflict ? ['The id and session_id fields in the session metadata conflict.'] : claims.length ? [] : ['Session metadata is missing an ID.']};
   }
 
   function traceIdentity(bundle) {
@@ -360,18 +327,18 @@
       const {manifest, eventLog} = manifestFrom(bundle?.files?.['manifest.json'] || '');
       const firstLine = (bundle.files[eventLog] || '').replace(/^\uFEFF/, '').split(/\r?\n/).find(line => line.trim());
       const first = JSON.parse(firstLine || 'null');
-      if (!object(first) || !object(first.payload)) throw new Error('Trace 第一条记录不是有效元数据');
+      if (!object(first) || !object(first.payload)) throw new Error('The first trace record does not contain valid metadata');
       const firstClaims = [first.rollout_id, first.payload.root_thread_id].map(identity).filter(Boolean);
-      if (!firstClaims.length) throw new Error('Trace 第一条记录缺少 rollout_id 或 root_thread_id');
+      if (!firstClaims.length) throw new Error('The first trace record has neither rollout_id nor root_thread_id');
       const claims = [...firstClaims, ...[manifest.rollout_id, manifest.root_thread_id].map(identity).filter(Boolean)];
       if (new Set(claims).size > 1 || (identity(first.payload.trace_id) && identity(manifest.trace_id) && first.payload.trace_id !== manifest.trace_id)) {
-        return {sessionId: null, status: 'conflict', diagnostics: ['Trace 第一条记录与 manifest 的身份元数据冲突。']};
+        return {sessionId: null, status: 'conflict', diagnostics: ['The trace identity in the first record conflicts with the manifest.']};
       }
       return {sessionId: claims[0], status: 'verified', diagnostics: []};
     } catch (error) { return {sessionId: null, status: 'unresolved', diagnostics: [error.message]}; }
   }
 
-  const api = {safePath, paths, collectBundles, parseBundle, rolloutIdentity, traceIdentity};
+  const api = {safePath, paths, parseBundle, rolloutIdentity, traceIdentity};
   if (typeof module !== 'undefined') module.exports = api;
   else root.AgentTrace = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
