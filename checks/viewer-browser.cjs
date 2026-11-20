@@ -8,12 +8,13 @@ const {chromium} = require('playwright');
 
 const epoch = Date.parse('2026-11-20T00:00:00Z');
 const rolloutId = 'viewer-session';
+const originalMessage = 'Model conversation \u4f60\u597d';
 const row = (ms, type, payload) => JSON.stringify({timestamp: new Date(epoch + ms).toISOString(), type, payload});
 function fixture() {
   const text = [
     row(0, 'session_meta', {id: rolloutId}),
     row(100, 'event_msg', {type: 'task_started', turn_id: 'turn-one'}),
-    row(200, 'response_item', {type: 'message', role: 'user', content: [{text: 'Model conversation'}]}),
+    row(200, 'response_item', {type: 'message', role: 'user', content: [{text: originalMessage}]}),
     row(300, 'event_msg', {type: 'agent_message', message: 'Client conversation'}),
     row(400, 'response_item', {type: 'function_call', name: 'read_file', call_id: 'call-one', arguments: '{"path":"fixture"}'}),
     row(700, 'response_item', {type: 'function_call_output', call_id: 'call-one', output: 'TOOL_RESULT_ONLY'}),
@@ -35,7 +36,7 @@ function fixture() {
 }
 
 test('Vue viewer preserves projections, tool boundaries, records, and attached Trace across export', async () => {
-  const {createPage} = await import('../page.mjs');
+  const {createPage} = await import('../src/server/page.mjs');
   const directory = await mkdtemp(path.join(tmpdir(), 'agenttrace-viewer-browser-'));
   let browser;
   try {
@@ -49,10 +50,10 @@ test('Vue viewer preserves projections, tool boundaries, records, and attached T
     await page.goto(pathToFileURL(file).href);
     const feed = page.locator('#feed');
     const tab = name => page.getByRole('tab', {name, exact: true});
-    await feed.getByText('Model conversation').waitFor();
+    await feed.getByText(originalMessage, {exact: true}).waitFor();
     await page.locator('#conversation-source').selectOption('clientMessages');
     await feed.getByText('Client conversation').waitFor();
-    assert.equal(await feed.getByText('Model conversation').count(), 0);
+    assert.equal(await feed.getByText(originalMessage, {exact: true}).count(), 0);
     await tab('Events').click();
     assert.ok(await feed.locator('.event-item').count());
     await tab('Tokens').click();
@@ -63,17 +64,17 @@ test('Vue viewer preserves projections, tool boundaries, records, and attached T
     await tool.getByText('TOOL_RESULT_ONLY', {exact: true}).waitFor();
     for (let step = 0; step < 4 && Number(await page.locator('#seek').inputValue()) > 400; step++) await page.locator('#previous').click();
     assert.equal(await page.locator('#seek').inputValue(), '400');
-    await tool.getByText(/结果尚未到达/).waitFor();
+    await tool.getByText(/The result is not available/).waitFor();
     assert.equal(await tool.getByText('TOOL_RESULT_ONLY', {exact: true}).count(), 0);
     await page.locator('#seek').press('End');
     await tool.getByText('TOOL_RESULT_ONLY', {exact: true}).waitFor();
-    await tool.locator('.code-view').filter({hasText: '执行结果'}).getByRole('button', {name: '展开'}).click();
+    await tool.locator('.code-view').filter({hasText: 'Tool result'}).getByRole('button', {name: 'Expand'}).click();
     const dialog = page.locator('#inspection-dialog');
     await dialog.getByText('TOOL_RESULT_ONLY', {exact: true}).waitFor();
     await page.keyboard.press('Escape');
     await dialog.waitFor({state: 'hidden'});
     await tab('Details').click();
-    await page.getByRole('button', {name: '浏览原始记录'}).click();
+    await page.getByRole('button', {name: 'Browse raw records'}).click();
     await dialog.locator('#record-query').fill('TOOL_RESULT_ONLY');
     assert.equal(await dialog.locator('.record-row').count(), 1);
     assert.match(await dialog.locator('#inspection-view').innerText(), /TOOL_RESULT_ONLY/);
@@ -82,7 +83,7 @@ test('Vue viewer preserves projections, tool boundaries, records, and attached T
     await tab('Trace').click();
     await feed.getByText('Trace trace-fixture', {exact: true}).waitFor();
     assert.match(await feed.locator('.trace-summary').innerText(), /40/);
-    await feed.getByRole('button', {name: '请求 Payload'}).click();
+    await feed.getByRole('button', {name: 'Request payload'}).click();
     assert.match(await dialog.locator('#inspection-view').innerText(), /TRACE_REQUEST_ONLY/);
     await page.keyboard.press('Escape');
     await dialog.waitFor({state: 'hidden'});
@@ -91,6 +92,7 @@ test('Vue viewer preserves projections, tool boundaries, records, and attached T
     const exported = path.join(directory, 'export.html');
     await (await pending).saveAs(exported);
     await page.goto(pathToFileURL(exported).href);
+    await feed.getByText(originalMessage, {exact: true}).waitFor();
     await tab('Trace').click();
     await feed.getByText('Trace trace-fixture', {exact: true}).waitFor();
     assert.deepEqual(errors, []);

@@ -2,15 +2,15 @@ import {readFile, realpath, stat, lstat, readdir} from 'node:fs/promises';
 import {createReadStream} from 'node:fs';
 import {createInterface} from 'node:readline';
 import path from 'node:path';
-import trace from './trace-parser.js';
+import trace from '../core/trace-parser.js';
 
 export async function scopedFilename(directory, relativePath) {
   const relative = trace.safePath(relativePath);
-  if (!relative) throw new Error(`不支持的 trace 相对路径 ${String(relativePath)}`);
+  if (!relative) throw new Error(`Unsupported relative trace path: ${String(relativePath)}`);
   const filename = await realpath(path.join(directory, ...relative.split('/')));
   const within = path.relative(directory, filename);
-  if (within.startsWith('..' + path.sep) || within === '..' || path.isAbsolute(within)) throw new Error(`引用超出 trace 目录 ${relative}`);
-  if (!(await stat(filename)).isFile()) throw new Error(`引用不是文件 ${relative}`);
+  if (within.startsWith('..' + path.sep) || within === '..' || path.isAbsolute(within)) throw new Error(`Referenced path is outside the trace directory: ${relative}`);
+  if (!(await stat(filename)).isFile()) throw new Error(`Referenced path is not a file: ${relative}`);
   return filename;
 }
 
@@ -32,9 +32,9 @@ async function hasManifest(directory) {
 }
 
 export async function discoverTraceRoot(configuredRoot) {
-  if (typeof configuredRoot !== 'string' || !configuredRoot.trim()) throw new Error('CODEX_ROLLOUT_TRACE_ROOT 必须是 trace 目录路径。');
+  if (typeof configuredRoot !== 'string' || !configuredRoot.trim()) throw new Error('CODEX_ROLLOUT_TRACE_ROOT must be a trace directory path.');
   const root = await realpath(path.resolve(configuredRoot));
-  if (!(await stat(root)).isDirectory()) throw new Error('CODEX_ROLLOUT_TRACE_ROOT 指向的不是目录。');
+  if (!(await stat(root)).isDirectory()) throw new Error('CODEX_ROLLOUT_TRACE_ROOT does not point to a directory.');
   const candidates = [];
   if (await hasManifest(root)) candidates.push(root);
   else {
@@ -51,9 +51,9 @@ export async function discoverTraceRoot(configuredRoot) {
       const first = await firstNonemptyLine(await scopedFilename(directory, references.eventLog));
       const bundle = {name, files: {'manifest.json': manifest, [references.eventLog]: first}};
       descriptors.push({directory, name, identity: trace.traceIdentity(bundle), bundle});
-    } catch (error) { warnings.push(`${name}：${error.code || error.message}`); }
+    } catch (error) { warnings.push(`${name}: ${error.code || error.message}`); }
   }
-  if (!candidates.length) warnings.push('目录中没有找到 manifest.json，请选择 trace bundle 或包含 trace bundle 的父目录。');
+  if (!candidates.length) warnings.push('No manifest.json found. Choose a trace bundle or a directory containing trace bundles.');
   return {descriptors, warnings};
 }
 
@@ -67,17 +67,7 @@ export async function loadTraceBundle(descriptor) {
   const diagnostics = [...first.warnings, ...references.warnings];
   for (const relative of references.payloads) {
     try { files[relative] = await readScoped(directory, relative); }
-    catch (error) { diagnostics.push(`无法读取 ${relative}：${error.code || error.message}`); }
+    catch (error) { diagnostics.push(`Could not read ${relative}: ${error.code || error.message}`); }
   }
   return {name, files, warnings: [...new Set(diagnostics)]};
-}
-
-export async function loadTraceRoot(configuredRoot) {
-  const {descriptors, warnings} = await discoverTraceRoot(configuredRoot);
-  const bundles = [];
-  for (const descriptor of descriptors) {
-    try { bundles.push(await loadTraceBundle(descriptor)); }
-    catch (error) { warnings.push(`${descriptor.name}：${error.code || error.message}`); }
-  }
-  return {bundles, warnings};
 }

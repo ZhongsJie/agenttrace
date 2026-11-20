@@ -2,7 +2,7 @@ import {createApp} from 'vue';
 import App from './App.vue';
 
 const shell = document.documentElement.cloneNode(true);
-for (const id of ['server-config', 'embedded-rollout', 'embedded-traces']) shell.querySelector(`#${id}`)?.remove();
+for (const id of ['server-config', 'embedded-rollout']) shell.querySelector(`#${id}`)?.remove();
 
 function createReport(rollout, theme) {
   const report = shell.cloneNode(true);
@@ -17,7 +17,7 @@ function createReport(rollout, theme) {
 
 const bootData = {};
 const warnings = [];
-for (const [key, id] of Object.entries({server: 'server-config', rollout: 'embedded-rollout', tracePreload: 'embedded-traces'})) {
+for (const [key, id] of Object.entries({server: 'server-config', rollout: 'embedded-rollout'})) {
   const data = document.getElementById(id);
   if (!data) continue;
   try { bootData[key] = JSON.parse(data.textContent); }

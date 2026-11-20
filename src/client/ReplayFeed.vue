@@ -22,15 +22,15 @@ const emit = defineEmits(['seek', 'select', 'copy', 'inspect', 'browse', 'choose
 const feed = ref(null);
 const expanded = reactive(new Set());
 const messageKinds = new Set(['user', 'assistant', 'reasoning', 'tool', 'agent']);
-const sourceNames = {modelItems: '模型对话条目', requestSnapshots: 'Trace 请求快照', clientMessages: '客户端消息事件'};
+const sourceNames = {modelItems: 'Model messages', clientMessages: 'Client messages'};
 const usageFields = ['input_tokens', 'cached_input_tokens', 'output_tokens', 'reasoning_output_tokens', 'total_tokens'];
 const query = computed(() => props.query.trim().toLowerCase());
 const model = computed(() => props.active?.model);
-const traceInfo = computed(() => props.active?.session?.traceInfo || props.active?.traceInfo);
+const traceInfo = computed(() => props.active?.traceInfo);
 const durationReached = computed(() => props.snapshot?.state.positionMs >= model.value?.durationMs);
 const replayEnded = computed(() => durationReached.value && props.snapshot?.state.status !== 'playing');
 const tokens = computed(() => model.value?.metrics.tokens);
-const usageNote = '按累计快照的增量统计，重复通知不重复计数。首个快照可能包含更早用量。';
+const usageNote = 'Usage is calculated from changes between cumulative snapshots. Duplicate notifications are counted only once. The first snapshot may include earlier usage.';
 
 function matches({step, outputVisible}) {
   if (props.turn !== 'all' && String(step.turnIndex) !== String(props.turn)) return false;
@@ -90,15 +90,15 @@ const relatedSteps = computed(() => {
 });
 
 const empty = computed(() => {
-  if (!model.value || !props.snapshot) return ['activity', '把执行过程放到眼前', '选择或拖入一份 Codex rollout，查看对话、工具调用和每个阶段的原始记录。'];
+  if (!model.value || !props.snapshot) return ['activity', 'Replay a session', 'Select or drop a Codex rollout to explore the conversation, tool calls, and raw records for each stage.'];
   if (entries.value.length || props.tab === 'trace') return null;
-  if (props.tab === 'conversation') return ['message', '这里还没有对话', durationReached.value
-    ? '当前来源没有匹配内容。可切换对话来源，或到 Events 查看运行通知，原始记录保留全部内容。'
-    : '继续播放或拖动进度查看后续记录。也可调整搜索与回合筛选。'];
-  if (props.tab === 'tools') return ['tools', '当前没有工具调用', '播放到调用位置后，这里会显示参数、状态与已到达的结果。'];
-  if (props.tab === 'events') return ['clock', '当前没有事件', '继续播放，或调整搜索与显示选项。'];
-  return ['token', '当前没有 Token 统计', tokens.value ? '统计记录尚未到达当前播放位置，或不符合筛选条件。'
-    : '这份日志没有 token_count 用量快照，不能估算消息或工具的 Token 消耗。'];
+  if (props.tab === 'conversation') return ['message', 'No messages to display', durationReached.value
+    ? 'Nothing matches in this source. Switch sources or open Events to see runtime notifications. The raw records contain all logged content.'
+    : 'Continue playback or drag the timeline to see later records. You can also adjust the search or turn filter.'];
+  if (props.tab === 'tools') return ['tools', 'No tool calls to display', 'As replay reaches a tool call, its arguments, status, and any result available at that point appear here.'];
+  if (props.tab === 'events') return ['clock', 'No events to display', 'Continue playback or adjust the search and display options.'];
+  return ['token', 'No token usage to display', tokens.value ? 'Replay has not reached any usage records yet, or none match the filters.'
+    : 'This log has no token_count snapshots, so token usage for messages or tools cannot be estimated.'];
 });
 
 function isOpen(kind, id) {
@@ -157,7 +157,7 @@ watch(signature, async () => {
       :status="traceStatus" :server-mode="serverMode"
       @inspect="stepEvents.inspect" @copy="stepEvents.copy" @choose-trace="emit('choose-trace', $event)" />
     <template v-else-if="tab === 'conversation'">
-      <p class="projection-note">{{ sourceNames[source] }} · 两类来源独立展示，不自动混合补齐。{{ source === 'requestSnapshots' ? '每次模型请求分别展示，不代表用户再次提交，不计入消息数。' : '' }}</p>
+      <p class="projection-note">{{ sourceNames[source] }} · The two sources are shown separately and are not merged to fill gaps.</p>
       <template v-for="block in blocks" :key="`${active.id}:${block.first.id}`">
         <div v-if="block.kind === 'agent'" class="message-row agent-row">
           <div class="avatar agent-avatar"><Icon name="bot" /></div>
@@ -169,17 +169,17 @@ watch(signature, async () => {
             </div>
             <div class="agent-content">
               <FeedStep v-for="{step, phase, outputVisible} in block.entries" :key="step.id" :mode="step.kind" :step="step"
-                :phase="phase" :output-visible="outputVisible" :replay-ended="replayEnded" :trace-info="traceInfo"
+                :phase="phase" :output-visible="outputVisible" :replay-ended="replayEnded"
                 :selected="selectedStepId === step.id" :open="isOpen(step.kind, step.id)" v-on="stepEvents" />
             </div>
           </div>
         </div>
-        <FeedStep v-else :mode="block.kind" :step="block.first" :trace-info="traceInfo"
+        <FeedStep v-else :mode="block.kind" :step="block.first"
           :selected="selectedStepId === block.first.id" :open="isOpen('event', block.first.id)" v-on="stepEvents" />
       </template>
     </template>
     <template v-else-if="tab === 'events'">
-      <p class="panel-note">运行事件独立于对话来源，保留日志中的每条通知。L 表示原始 JSONL 行号。</p>
+      <p class="panel-note">Runtime events are independent of the conversation source and preserve every logged notification. L indicates the original JSONL line number.</p>
       <div class="event-list">
         <FeedStep v-for="{step, outputVisible} in entries" :key="`${active.id}:${step.id}`" mode="event" :step="step"
           :related="relatedSteps.get(step.id)" :output-visible="outputVisible" :selected="selectedStepId === step.id"
@@ -187,23 +187,23 @@ watch(signature, async () => {
       </div>
     </template>
     <template v-else-if="tab === 'tools'">
-      <p class="panel-note">调用状态随回放位置变化。耗时为日志实测区间，MCP 报告耗时另列于详情。并行只根据已知区间重叠标记。</p>
+      <p class="panel-note">Tool call status changes with the replay position. Durations come from the log; MCP-reported durations appear separately in the details. Calls are marked as parallel only when their known intervals overlap.</p>
       <FeedStep v-for="{step, phase, outputVisible} in entries" :key="`${active.id}:${step.id}`" mode="tool" :step="step"
         :phase="phase" :output-visible="outputVisible" :replay-ended="replayEnded"
         :selected="selectedStepId === step.id" :open="isOpen('tool', step.id)" v-on="stepEvents" />
     </template>
     <template v-else>
       <div class="token-view-summary">
-        <div><span>全会话累计 Token</span><br><strong>{{ number(tokens?.total_tokens) }}</strong></div>
-        <span>{{ entries.length }} 个已到达的用量记录</span>
+        <div><span>Total session tokens</span><br><strong>{{ number(tokens?.total_tokens) }}</strong></div>
+        <span>Usage records reached: {{ entries.length }}</span>
       </div>
-      <p class="panel-note">{{ usageNote }}缓存输入与推理输出分别是输入、输出的子集，不能再次加到总数，也不能精确分摊到单条消息。</p>
+      <p class="panel-note">{{ usageNote }} Cached input and reasoning output are already included in input and output counts, respectively. Do not add them to the total again. These counts cannot be attributed precisely to individual messages.</p>
       <div class="table-scroll">
         <table class="token-table">
-          <thead><tr><th>记录位置</th><th>输入</th><th>缓存输入</th><th>输出</th><th>推理输出</th><th>区间总数</th></tr></thead>
+          <thead><tr><th>Record position</th><th>Input</th><th>Cached input</th><th>Output</th><th>Reasoning output</th><th>Interval total</th></tr></thead>
           <tbody>
             <tr v-for="{step} in entries" :key="step.id">
-              <td><button type="button" class="event-meta-button" :data-seek-step="step.id" @click="seek(step.id, false)">L{{ step.line }} · {{ clock(step.atMs) }}</button></td>
+              <td><button type="button" class="event-meta-button" @click="seek(step.id, false)">L{{ step.line }} · {{ clock(step.atMs) }}</button></td>
               <td v-for="field in usageFields" :key="field">{{ number(step.usage?.[field]) }}</td>
             </tr>
           </tbody>

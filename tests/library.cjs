@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const libraryModule = () => import('../session-library.mjs');
+const libraryModule = () => import('../src/server/session-library.mjs');
 async function sandbox(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'agenttrace-library-'));
   t.after(() => fs.rm(root, {recursive: true, force: true}));
@@ -71,7 +71,7 @@ test('settings persist, add directories, publish immutable revisions, and reject
   await assert.rejects(library.updateSettings({sessionRoot: 123, traceRoot: '', additionalSessionRoots: []}));
   assert.equal(library.catalog().revision, 2);
   const filename = await rollout(root, 'rollout-file.jsonl', 'file');
-  await assert.rejects(library.updateSettings({sessionRoot: filename, traceRoot: '', additionalSessionRoots: []}), /不是目录/);
+  await assert.rejects(library.updateSettings({sessionRoot: filename, traceRoot: '', additionalSessionRoots: []}), /Not a directory/);
   assert.equal((await library.refresh()).revision, 3);
 });
 
@@ -88,7 +88,7 @@ test('trace payload loading is lazy and revalidates identity after scan', async 
   assert.match(loaded.traceBundles[0].files['payloads/request.json'], /after-scan/);
   await fs.writeFile(path.join(directory, 'trace.jsonl'), JSON.stringify({rollout_id: 'impostor', payload: {type: 'rollout_started'}}));
   const stale = await library.loadTraces('one');
-  assert.equal(stale.traceBundles.length, 0); assert.match(stale.warnings.join(' '), /身份已变化/);
+  assert.equal(stale.traceBundles.length, 0); assert.match(stale.warnings.join(' '), /trace identity has changed/);
 });
 
 test('replaced trace directory symlinks cannot escape the indexed bundle', async t => {
@@ -100,7 +100,7 @@ test('replaced trace directory symlinks cannot escape the indexed bundle', async
   const library = await createSessionLibrary({settingsFile: path.join(root, 'settings.json'), initialSettings: {sessionRoot: sessions, traceRoot: traces}});
   await fs.rm(directory, {recursive: true}); await fs.symlink(outside, directory, 'dir');
   const result = await library.loadTraces('one');
-  assert.equal(result.traceBundles.length, 0); assert.match(result.warnings.join(' '), /超出 trace 目录/);
+  assert.equal(result.traceBundles.length, 0); assert.match(result.warnings.join(' '), /outside the trace directory/);
 });
 
 test('catalog shows turn context model before loading a session', async t => {

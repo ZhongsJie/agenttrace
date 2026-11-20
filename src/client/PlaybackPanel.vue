@@ -20,9 +20,9 @@ const canPlay = computed(() => total.value > 0 && model.value.timeline.length > 
 const playing = computed(() => state.value?.status === 'playing');
 
 const timingNote = computed(() => {
-  if (!model.value) return '时间线按日志记录时间回放。消息记录时间不代表生成耗时。';
-  if (model.value.timing === 'presentation') return '部分记录缺少时间戳，使用等间距展示时间。实测耗时仍以原始日志为准。';
-  return '按日志记录时间回放。标记表示事件落盘，消息记录时间不等于生成耗时。';
+  if (!model.value) return 'Replay follows log timestamps. Message timestamps do not measure generation time.';
+  if (model.value.timing === 'presentation') return 'Some records have no timestamp, so replay uses evenly spaced intervals. Refer to the original log for measured durations.';
+  return 'Replay follows log timestamps. Markers show when events were logged, not how long messages took to generate.';
 });
 
 const tracks = computed(() => {
@@ -41,7 +41,7 @@ const tracks = computed(() => {
       const left = Math.min(99.2, Math.max(0, mark.atMs / span * 100));
       const width = tool && Number.isFinite(mark.endMs) ? Math.max(0.65, (mark.endMs - mark.atMs) / span * 100) : 0.65;
       const parallel = mark.parallelGroup;
-      const title = `${mark.title || label} · +${duration(mark.atMs)}${tool ? ' · ' + duration(steps.get(mark.stepId)?.duration) : ''}${parallel ? ` · 并行组 ${parallel}` : ''}`;
+      const title = `${mark.title || label} · +${duration(mark.atMs)}${tool ? ' · ' + duration(steps.get(mark.stepId)?.duration) : ''}${parallel ? ` · Parallel group ${parallel}` : ''}`;
       return {
         stepId: mark.stepId,
         parallel,
@@ -55,28 +55,28 @@ const tracks = computed(() => {
 </script>
 
 <template>
-  <section class="playback-panel panel" aria-label="原生播放控制">
+  <section class="playback-panel panel" aria-label="Playback controls">
     <div class="transport">
       <div class="transport-buttons">
-        <button id="previous" type="button" class="round-button" aria-label="上一个事件"
-          title="上一个事件 · 左方向键" :disabled="!canPlay || position <= 0" @click="emit('step', -1)">
+        <button id="previous" type="button" class="round-button" aria-label="Previous event"
+          title="Previous event · Left arrow" :disabled="!canPlay || position <= 0" @click="emit('step', -1)">
           <Icon name="previous" />
         </button>
-        <button id="play" type="button" class="round-button play-button" :aria-label="playing ? '暂停' : '播放'"
-          title="播放或暂停 · 空格键" :disabled="!canPlay" @click="emit('toggle')">
+        <button id="play" type="button" class="round-button play-button" :aria-label="playing ? 'Pause' : 'Play'"
+          title="Play or pause · Space" :disabled="!canPlay" @click="emit('toggle')">
           <Icon :name="playing ? 'pause' : 'play'" />
         </button>
-        <button id="next" type="button" class="round-button" aria-label="下一个事件"
-          title="下一个事件 · 右方向键" :disabled="!canPlay || position >= total" @click="emit('step', 1)">
+        <button id="next" type="button" class="round-button" aria-label="Next event"
+          title="Next event · Right arrow" :disabled="!canPlay || position >= total" @click="emit('step', 1)">
           <Icon name="next" />
         </button>
       </div>
       <span id="elapsed" class="time-label" :title="model ? duration(position) : null">{{ clock(position) }}</span>
       <input id="seek" class="seek" type="range" min="0" :max="Math.max(1, total)" :value="position" step="1"
-        aria-label="回放进度" :disabled="!canPlay" :style="{'--progress': `${progress}%`}"
+        aria-label="Replay position" :disabled="!canPlay" :style="{'--progress': `${progress}%`}"
         :title="model ? `${duration(position)} / ${duration(total)}` : null" @input="emit('seek', Number($event.target.value))">
       <span id="time-total" class="time-label total-time">{{ clock(position) }} / {{ clock(total) }}</span>
-      <select id="speed" class="compact-select speed-select" aria-label="播放速度"
+      <select id="speed" class="compact-select speed-select" aria-label="Playback speed"
         :value="state?.speed ?? 1" :disabled="!canPlay" @change="emit('speed', Number($event.target.value))">
         <option v-for="rate in rates" :key="rate" :value="rate">{{ rate }}×</option>
       </select>
@@ -86,8 +86,8 @@ const tracks = computed(() => {
         <span>{{ track.label }}</span>
         <div class="track-rail" :style="{height: track.height}">
           <button v-for="mark in track.marks" :key="mark.stepId" type="button"
-            :class="['track-mark', track.kind, {parallel: mark.parallel}]" :data-track-step="mark.stepId"
-            :title="mark.title" :aria-label="`定位 ${mark.title}`" :style="mark.style" @click="emit('seek-step', mark.stepId, true)"></button>
+            :class="['track-mark', track.kind, {parallel: mark.parallel}]"
+            :title="mark.title" :aria-label="`Jump to ${mark.title}`" :style="mark.style" @click="emit('seek-step', mark.stepId, true)"></button>
           <span v-if="model" class="track-cursor" :style="{left: `${Math.min(99.9, progress)}%`}"></span>
         </div>
       </div>

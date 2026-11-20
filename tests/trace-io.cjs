@@ -26,7 +26,6 @@ async function fixture(parent, id = 'sample') {
   for (const [file, text] of Object.entries(files)) await fs.writeFile(path.join(root, file), text);
   return {root, files, rows};
 }
-const preloads = html => JSON.parse(html.match(/<script id="embedded-traces" type="application\/json">([\s\S]*?)<\/script>/)[1]);
 
 function request(url, method = 'GET') {
   return new Promise((resolve, reject) => {
@@ -41,37 +40,39 @@ function request(url, method = 'GET') {
 }
 
 test('Node loader accepts bundle and parent roots while reading referenced payloads only', async () => {
-  const {loadTraceRoot} = await import('../trace-loader.mjs');
+  const {discoverTraceRoot, loadTraceBundle} = await import('../src/server/trace-loader.mjs');
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'agenttrace-loader-'));
   try {
     const a = await fixture(directory, 'a'); await fixture(directory, 'b');
-    const parent = await loadTraceRoot(directory);
-    assert.equal(parent.bundles.length, 2);
+    const parent = await discoverTraceRoot(directory);
+    assert.deepEqual(parent.descriptors.map(descriptor => descriptor.name), ['a', 'b']);
     assert.deepEqual(parent.warnings, []);
-    assert.equal(parent.bundles[0].files['payloads/2.json'], a.files['payloads/2.json']);
-    assert.ok(!Object.hasOwn(parent.bundles[0].files, 'payloads/unused.json'));
-    assert.equal((await loadTraceRoot(a.root)).bundles.length, 1);
-    assert.ok(!JSON.stringify(parent).includes('UNREFERENCED_PRIVATE_MARKER'));
+    const bundle = await loadTraceBundle(parent.descriptors[0]);
+    assert.equal(bundle.files['payloads/2.json'], a.files['payloads/2.json']);
+    assert.ok(!Object.hasOwn(bundle.files, 'payloads/unused.json'));
+    assert.equal((await discoverTraceRoot(a.root)).descriptors.length, 1);
+    assert.ok(!JSON.stringify(bundle).includes('UNREFERENCED_PRIVATE_MARKER'));
   } finally { await fs.rm(directory, {recursive: true, force: true}); }
 });
 
 test('missing payload and malformed neighboring manifest remain visible as diagnostics', async () => {
-  const {loadTraceRoot} = await import('../trace-loader.mjs');
+  const {discoverTraceRoot, loadTraceBundle} = await import('../src/server/trace-loader.mjs');
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'agenttrace-partial-'));
   try {
     const a = await fixture(directory);
     await fs.unlink(path.join(a.root, 'payloads/3.json'));
     await fs.mkdir(path.join(directory, 'broken'));
     await fs.writeFile(path.join(directory, 'broken/manifest.json'), 'broken JSON');
-    const result = await loadTraceRoot(directory);
-    assert.equal(result.bundles.length, 1);
-    assert.match(result.bundles[0].warnings.join('\n'), /payloads\/3.json/);
-    assert.match(result.warnings.join('\n'), /broken/);
+    const {descriptors, warnings} = await discoverTraceRoot(directory);
+    assert.equal(descriptors.length, 1);
+    const bundle = await loadTraceBundle(descriptors[0]);
+    assert.match(bundle.warnings.join('\n'), /payloads\/3.json/);
+    assert.match(warnings.join('\n'), /broken/);
   } finally { await fs.rm(directory, {recursive: true, force: true}); }
 });
 
 test('trace file reads reject traversal and payload symlinks leaving the bundle', async () => {
-  const {loadTraceRoot} = await import('../trace-loader.mjs');
+  const {discoverTraceRoot, loadTraceBundle} = await import('../src/server/trace-loader.mjs');
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'agenttrace-path-'));
   try {
     const a = await fixture(directory);
@@ -80,41 +81,47 @@ test('trace file reads reject traversal and payload symlinks leaving the bundle'
     await fs.symlink(path.join(directory, 'private.json'), path.join(a.root, 'payloads/3.json'));
     a.rows.push({...a.rows[0], seq: 4, payload: {type: 'unknown', leaked: ref(4, '../private.json', 'unknown')}});
     await fs.writeFile(path.join(a.root, 'trace.jsonl'), a.rows.map(row => JSON.stringify(row)).join('\n'));
-    const result = await loadTraceRoot(a.root);
-    assert.equal(result.bundles.length, 1);
-    assert.ok(!Object.hasOwn(result.bundles[0].files, 'payloads/3.json'));
-    assert.ok(!Object.hasOwn(result.bundles[0].files, '../private.json'));
-    assert.match(result.bundles[0].warnings.join('\n'), /路径|目录|引用|relative|path/i);
-    assert.ok(!JSON.stringify(result).includes('DO_NOT_INCLUDE_OUTSIDE'));
+    const {descriptors} = await discoverTraceRoot(a.root);
+    const bundle = await loadTraceBundle(descriptors[0]);
+    assert.ok(!Object.hasOwn(bundle.files, 'payloads/3.json'));
+    assert.ok(!Object.hasOwn(bundle.files, '../private.json'));
+    assert.match(bundle.warnings.join('\n'), /Rejected unsafe payload path/);
+    assert.match(bundle.warnings.join('\n'), /outside the trace directory/);
+    assert.ok(!JSON.stringify(bundle).includes('DO_NOT_INCLUDE_OUTSIDE'));
   } finally { await fs.rm(directory, {recursive: true, force: true}); }
 });
 
-test('standalone page embeds portable trace bundles only when supplied', async () => {
+test('localhost provides referenced Trace payloads separately from the page', async () => {
+  const {startServer} = await import('../src/server/start.mjs');
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'agenttrace-portable-'));
+  let running;
   try {
     const a = await fixture(directory);
-    const {loadTraceRoot} = await import('../trace-loader.mjs');
-    const {createPage} = await import('../page.mjs');
-    const html = await createPage({tracePreload: await loadTraceRoot(a.root)});
-    const data = preloads(html);
-    assert.equal(data.bundles.length, 1);
-    assert.equal(data.bundles[0].files['payloads/2.json'], a.files['payloads/2.json']);
-    assert.ok(!/<script[^>]+src=/.test(html));
-    assert.doesNotMatch(await createPage(), /<script id="embedded-traces"/);
-  } finally { await fs.rm(directory, {recursive: true, force: true}); }
+    running = await startServer({port: 0, traceRoot: a.root, settingsFile: path.join(directory, 'settings.json')});
+    const page = await request(running.url);
+    assert.equal(page.status, 200);
+    assert.ok(!page.body.includes(a.files['payloads/2.json']));
+    const result = await request(running.url + '/api/traces?sessionId=sample');
+    assert.equal(result.status, 200);
+    const {traceBundles, warnings} = JSON.parse(result.body);
+    assert.equal(traceBundles.length, 1);
+    assert.equal(traceBundles[0].files['payloads/2.json'], a.files['payloads/2.json']);
+    assert.ok(!Object.hasOwn(traceBundles[0].files, 'payloads/unused.json'));
+    assert.deepEqual(warnings, []);
+  } finally { if (running) await running.close(); await fs.rm(directory, {recursive: true, force: true}); }
 });
 
 test('localhost startup exposes lazy catalog without arbitrary filesystem routes', async t => {
-  const {startServer} = await import('../start.mjs');
+  const {startServer} = await import('../src/server/start.mjs');
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'agenttrace-server-'));
   let running;
   try {
     const a = await fixture(directory);
     try { running = await startServer({port: 0, traceRoot: a.root, settingsFile: path.join(directory, 'settings.json')}); }
-    catch (error) { if (['EPERM', 'EACCES'].includes(error.code)) { t.skip('本机沙箱禁止 localhost 监听'); return; } throw error; }
+    catch (error) { if (['EPERM', 'EACCES'].includes(error.code)) { t.skip('The local sandbox does not allow listening on localhost'); return; } throw error; }
     assert.ok(running.url.startsWith('http://127.0.0.1:'));
     const page = await request(running.url);
-    assert.equal(page.status, 200); assert.match(page.body, /id="server-config"/); assert.doesNotMatch(page.body, /<script id="embedded-traces"/);
+    assert.equal(page.status, 200); assert.match(page.body, /id="server-config"/);
     const catalog = JSON.parse((await request(running.url + '/api/catalog')).body);
     assert.equal(catalog.unmatchedTraces.length, 1);
     assert.equal(catalog.sessions.length, 0);

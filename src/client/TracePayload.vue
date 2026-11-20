@@ -12,7 +12,7 @@ function open(event) {
 </script>
 
 <template>
-  <span v-if="!path" class="trace-payload-missing">{{ label }}未记录</span>
-  <span v-else-if="payload?.source == null" class="trace-payload-missing">{{ label }}缺失 · {{ path }}</span>
-  <button v-else type="button" class="mini-button trace-document-button" data-code-action="expand" @click="open">{{ label }}</button>
+  <span v-if="!path" class="trace-payload-missing">{{ label }} not recorded</span>
+  <span v-else-if="payload?.source == null" class="trace-payload-missing">{{ label }} missing · {{ path }}</span>
+  <button v-else type="button" class="mini-button trace-document-button" @click="open">{{ label }}</button>
 </template>

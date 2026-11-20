@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {traceIdentity, rolloutIdentity} = require('../trace-parser.js');
+const {traceIdentity, rolloutIdentity} = require('../src/core/trace-parser.js');
 const bundle = (manifest, first) => ({files: {'manifest.json': JSON.stringify(manifest), 'trace.jsonl': typeof first === 'string' ? first : JSON.stringify(first)}});
 test('association uses first record identity and rejects conflicting claims', () => {
   const first = {rollout_id: 'session', payload: {type:'rollout_started', root_thread_id:'session', trace_id:'trace'}};

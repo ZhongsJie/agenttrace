@@ -9,7 +9,7 @@ export default defineConfig({
   build: {
     write: false,
     lib: {
-      entry: fileURLToPath(new URL('./frontend/src/main.js', import.meta.url)),
+      entry: fileURLToPath(new URL('./src/client/main.js', import.meta.url)),
       name: 'AgentTraceFrontend',
       formats: ['iife'],
     },

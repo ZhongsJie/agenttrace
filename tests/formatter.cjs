@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const format = require('../formatter.js');
+const format = require('../src/core/formatter.js');
 
 function decoded(html) {
   return html.replace(/<\/?span(?: class="tok-[a-z]+")?>/g, '')
@@ -19,12 +19,12 @@ function assertSafeAndExact(view) {
 }
 
 test('JSON presentation pretty prints without changing the original source', () => {
-  const source = '  {"name":"李伟","number":-2.5e3,"yes":true,"none":null,"list":[1,2]}\r\n';
-  const document = format.document(source, {id: 'record-1', title: '事件', origin: {sourceLine: 4}});
+  const source = '  {"name":"Renée","number":-2.5e3,"yes":true,"none":null,"list":[1,2]}\r\n';
+  const document = format.document(source, {id: 'record-1', title: 'Event for Renée', origin: {sourceLine: 4}});
   const view = format.present(document);
   assert.equal(document.source, source);
   assert.equal(document.id, 'record-1');
-  assert.equal(document.title, '事件');
+  assert.equal(document.title, 'Event for Renée');
   assert.equal(document.origin.sourceLine, 4);
   assert.equal(view.source, source);
   assert.equal(view.language, 'json');
@@ -55,7 +55,7 @@ test('malformed JSON stays intact with a visible parsing warning', () => {
   const view = format.present(format.document(source, {language: 'json'}));
   assert.equal(view.language, 'json');
   assert.equal(view.text, source);
-  assert.match(view.warning, /JSON.*原文/);
+  assert.match(view.warning, /Could not parse JSON.*original text was kept/);
   assertSafeAndExact(view);
 });
 
@@ -65,13 +65,15 @@ test('JSONL retains malformed physical lines and reports their original line num
   const view = format.present(document);
   assert.equal(view.source, source);
   assert.match(view.text, /not-json <tag>/);
-  assert.match(view.warning, /第 3 行/);
+  assert.match(view.warning, /Could not parse line 3/);
   assert.match(view.text, /"one": 1/);
   assert.match(view.text, /"two": true/);
   assertSafeAndExact(view);
   const raw = format.present(document, {mode: 'raw'});
   assert.equal(raw.text, source);
   assertSafeAndExact(raw);
+  const multipleInvalid = format.present(format.document(source + 'incomplete', {language: 'jsonl'}));
+  assert.match(multipleInvalid.warning, /Could not parse lines 3, 5/);
 });
 
 test('automatic detection recognizes JSONL and respects explicit language overrides', () => {
@@ -104,7 +106,7 @@ test('hostile log markup never becomes executable markup or dynamic token classe
 test('non-JSON language views highlight lexically and retain every source character', () => {
   const examples = {
     javascript: 'const x = "hello";\n/* multi\nline */\nif (x !== null) console.log(x);\n',
-    typescript: 'interface User { name: string }\nconst item: User = {name: "李伟"};\n',
+    typescript: 'interface User { name: string }\nconst item: User = {name: "Renée"};\n',
     python: 'def greet(name):\n    """multi\n    doc"""\n    return True # comment\n',
     bash: '#!/bin/bash\nexport NAME=world\nprintf "%s\\n" "$NAME" | cat --number\n',
     yaml: 'name: person\nready: true\n  list: [1, 2] # comment\n',
@@ -129,11 +131,11 @@ test('language hints guide code content while JSON values retain JSON formatting
   assert.equal(format.document('<root id="1"/>').suggestedLanguage, 'xml');
   assert.equal(format.document('const value: number = 1;').suggestedLanguage, 'typescript');
   assert.equal(format.document('# Heading\n\nText').suggestedLanguage, 'markdown');
-  assert.equal(format.document('arbitrary output 你好').suggestedLanguage, 'text');
+  assert.equal(format.document('arbitrary output Renée').suggestedLanguage, 'text');
 });
 
 test('record index preserves source line numbers, malformed entries and decoded previews', () => {
-  const first = '\uFEFF' + JSON.stringify({timestamp: '2026-11-05T11:38:50Z', type: 'response_item', payload: {type: 'message', content: [{text: '李伟'}]}});
+  const first = '\uFEFF' + JSON.stringify({timestamp: '2026-11-05T11:38:50Z', type: 'response_item', payload: {type: 'message', content: [{text: 'Renée'}]}});
   const source = first + '\r\n\r\n invalid <tag> \r\n {"type":"event_msg","payload":{"type":"token_count"}}\r\n42\n';
   const records = format.records(source);
   assert.equal(records.length, 4);
@@ -141,7 +143,7 @@ test('record index preserves source line numbers, malformed entries and decoded 
   assert.equal(records[0].source, first);
   assert.equal(records[0].category, 'response_item/message');
   assert.equal(records[0].timestamp, '2026-11-05T11:38:50Z');
-  assert.equal(records[0].preview, '李伟');
+  assert.equal(records[0].preview, 'Renée');
   assert.equal(records[1].valid, false);
   assert.equal(records[1].source, ' invalid <tag> ');
   assert.equal(records[1].category, 'unknown');
@@ -151,7 +153,7 @@ test('record index preserves source line numbers, malformed entries and decoded 
 });
 
 test('record search and type filtering cover the entire index rather than one rendered page', () => {
-  const source = Array.from({length: 112}, (_, index) => JSON.stringify({type: index % 2 ? 'event_msg' : 'response_item', payload: {type: index % 2 ? 'token_count' : 'message', message: `person ${index} ${index === 105 ? '李伟' : ''}`}})).join('\n');
+  const source = Array.from({length: 112}, (_, index) => JSON.stringify({type: index % 2 ? 'event_msg' : 'response_item', payload: {type: index % 2 ? 'token_count' : 'message', message: `person ${index} ${index === 105 ? 'Renée' : ''}`}})).join('\n');
   const records = format.records(source);
   const page = format.recordPage(records, {page: 3});
   assert.equal(page.page, 3);
@@ -159,7 +161,7 @@ test('record search and type filtering cover the entire index rather than one re
   assert.equal(page.items.length, 12);
   assert.equal(page.items[0].line, 101);
   assert.equal(page.total, 112);
-  const search = format.recordPage(records, {query: '李伟'});
+  const search = format.recordPage(records, {query: 'Renée'});
   assert.equal(search.total, 1);
   assert.equal(search.items[0].line, 106);
   const typed = format.recordPage(records, {type: 'event_msg/token_count', pageSize: 10, page: 2});
@@ -187,10 +189,10 @@ test('empty filtered pages expose no unrelated record and page bounds remain usa
 });
 
 test('generated object documents and empty content have stable native presentations', () => {
-  const value = {name: '李伟', nested: [true, null]};
+  const value = {name: 'Renée', nested: [true, null]};
   const doc = format.document(value, {language: 'json'});
   assert.deepEqual(JSON.parse(doc.source), value);
-  assert.deepEqual(value, {name: '李伟', nested: [true, null]});
+  assert.deepEqual(value, {name: 'Renée', nested: [true, null]});
   const empty = format.present(format.document(''));
   assert.equal(empty.source, '');
   assert.equal(empty.language, 'text');

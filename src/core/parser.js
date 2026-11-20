@@ -7,12 +7,12 @@
       if (!line.trim()) return;
       try {
         const record = JSON.parse(line);
-        if (!record || typeof record !== 'object' || Array.isArray(record)) throw Error('记录必须是对象');
-        if (typeof record.type !== 'string') throw Error('缺少记录类型');
-        if (record.payload != null && (typeof record.payload !== 'object' || Array.isArray(record.payload))) throw Error('payload 必须是对象');
-        if (record.payload?.type != null && typeof record.payload.type !== 'string') throw Error('payload.type 必须是字符串');
+        if (!record || typeof record !== 'object' || Array.isArray(record)) throw Error('Record must be an object');
+        if (typeof record.type !== 'string') throw Error('Missing record type');
+        if (record.payload != null && (typeof record.payload !== 'object' || Array.isArray(record.payload))) throw Error('payload must be an object');
+        if (record.payload?.type != null && typeof record.payload.type !== 'string') throw Error('payload.type must be a string');
         records.push({...record, line: index + 1, time: Date.parse(record.timestamp)});
-      } catch (error) { warnings.push(`第 ${index + 1} 行：${error.message}`); }
+      } catch (error) { warnings.push(`Line ${index + 1}: ${error.message}`); }
     });
     const meta = records.find(record => record.type === 'session_meta')?.payload || {};
     const steps = [], calls = new Map(), usage = [], turns = [], relations = [];
@@ -54,13 +54,13 @@
         }
         if (changed) {
           usage.push({time: record.time, line: record.line, delta, total: {...now}, last: payload.info.last_token_usage, baseline: firstUsage});
-          add(record, 'usage', 'Token 统计区间', JSON.stringify(delta, null, 2), 'usage', {usage: delta});
+          add(record, 'usage', 'Token usage for interval', JSON.stringify(delta, null, 2), 'usage', {usage: delta});
         }
         previous = {...now}; firstUsage = false;
         continue;
       }
       if (record.type === 'response_item' && ['function_call', 'custom_tool_call', 'local_shell_call'].includes(type)) {
-        const step = add(record, 'tool', payload.name || type, payload.arguments || payload.input || JSON.stringify(payload.action), 'tools', {callId: payload.call_id || payload.id, status: '未完成', hasStart: true, model: context.model, content: payload});
+        const step = add(record, 'tool', payload.name || type, payload.arguments || payload.input || JSON.stringify(payload.action), 'tools', {callId: payload.call_id || payload.id, status: 'Incomplete', hasStart: true, model: context.model, content: payload});
         calls.set(callKey(payload), step);
         continue;
       }
@@ -68,11 +68,11 @@
         const key = callKey(payload);
         let step = calls.get(key);
         if (!step && type.endsWith('_begin')) {
-          step = add(record, 'tool', payload.invocation?.tool || type, JSON.stringify(payload.invocation || payload, null, 2), 'tools', {callId: payload.call_id, status: '未完成', hasStart: true, content: payload});
+          step = add(record, 'tool', payload.invocation?.tool || type, JSON.stringify(payload.invocation || payload, null, 2), 'tools', {callId: payload.call_id, status: 'Incomplete', hasStart: true, content: payload});
           calls.set(key, step);
         }
         if (!step) {
-          step = add(record, 'tool', payload.invocation?.tool || '孤立工具结果', '', 'tools', {callId: payload.call_id, status: '缺少调用起点', hasStart: false});
+          step = add(record, 'tool', payload.invocation?.tool || 'Orphaned tool result', '', 'tools', {callId: payload.call_id, status: 'Missing call start', hasStart: false});
           calls.set(key, step);
         }
         if (!step.sourceRefs.some(ref => ref.line === record.line)) step.sourceRefs.push(sourceRef(record));
@@ -81,7 +81,7 @@
           if (record.type === 'response_item' || step.resultOrigin !== 'response_item') {
             step.end = record.time;
             step.duration = Number.isFinite(step.time) && step.hasStart ? record.time - step.time : null;
-            step.status = step.hasStart ? '已完成' : '缺少调用起点';
+            step.status = step.hasStart ? 'Completed' : 'Missing call start';
             step.output = output; step.resultLine = record.line; step.resultOrigin = record.type; step.resultContent = payload;
           }
           if (record.type === 'event_msg') { step.runtimeEnd = record.time; step.runtimeOutput = payload; }
@@ -90,22 +90,22 @@
         continue;
       }
       if (record.type === 'response_item' && type === 'message') {
-        const body = textOf(payload.content), classification = firstTaskLine != null && record.line < firstTaskLine ? {contextKind: 'session_prelude', title: '用户提示'} : null;
-        add(record, classification ? 'context' : payload.role || 'message', classification?.title || (payload.role === 'assistant' ? 'Assistant' : payload.role === 'user' ? '用户' : payload.role), body, classification ? 'contexts' : 'modelItems', {channel: payload.phase || payload.channel, role: payload.role, content: payload.content, ...(classification || {})});
+        const body = textOf(payload.content), classification = firstTaskLine != null && record.line < firstTaskLine ? {contextKind: 'session_prelude', title: 'User prompt'} : null;
+        add(record, classification ? 'context' : payload.role || 'message', classification?.title || (payload.role === 'assistant' ? 'Assistant' : payload.role === 'user' ? 'User' : payload.role), body, classification ? 'contexts' : 'modelItems', {channel: payload.phase || payload.channel, role: payload.role, content: payload.content, ...(classification || {})});
         continue;
       }
       if (record.type === 'response_item' && type === 'reasoning') {
         const prelude = firstTaskLine != null && record.line < firstTaskLine;
-        add(record, prelude ? 'context' : 'reasoning', prelude ? '用户提示' : '深度思考', textOf(payload.summary || payload.content) || '仅有加密内容，无法回放明文', prelude ? 'contexts' : 'modelItems', {content: payload.summary || payload.content, encrypted: !textOf(payload.summary || payload.content), ...(prelude ? {contextKind: 'session_prelude'} : {})});
+        add(record, prelude ? 'context' : 'reasoning', prelude ? 'User prompt' : 'Reasoning', textOf(payload.summary || payload.content) || 'Only encrypted content is available; plaintext cannot be replayed.', prelude ? 'contexts' : 'modelItems', {content: payload.summary || payload.content, encrypted: !textOf(payload.summary || payload.content), ...(prelude ? {contextKind: 'session_prelude'} : {})});
         continue;
       }
       if (record.type === 'event_msg' && ['user_message', 'agent_message', 'agent_reasoning', 'agent_reasoning_raw_content'].includes(type)) {
         const kind = {user_message: 'user', agent_message: 'assistant', agent_reasoning: 'reasoning', agent_reasoning_raw_content: 'reasoning'}[type];
         const prelude = firstTaskLine != null && record.line < firstTaskLine;
-        add(record, prelude ? 'context' : kind, prelude ? '用户提示' : kind === 'reasoning' ? '深度思考' : kind, typeof payload.message === 'string' ? payload.message : typeof payload.text === 'string' ? payload.text : '', prelude ? 'contexts' : 'clientMessages', {channel: payload.phase, role: kind === 'reasoning' ? undefined : kind, content: payload, origin: 'client_event', ...(prelude ? {contextKind: 'session_prelude'} : {})});
+        add(record, prelude ? 'context' : kind, prelude ? 'User prompt' : kind === 'reasoning' ? 'Reasoning' : kind, typeof payload.message === 'string' ? payload.message : typeof payload.text === 'string' ? payload.text : '', prelude ? 'contexts' : 'clientMessages', {channel: payload.phase, role: kind === 'reasoning' ? undefined : kind, content: payload, origin: 'client_event', ...(prelude ? {contextKind: 'session_prelude'} : {})});
         continue;
       }
-      if (record.type === 'compacted') add(record, 'context', '上下文压缩', payload.message || JSON.stringify(payload), 'contexts', {content: payload});
+      if (record.type === 'compacted') add(record, 'context', 'Context compaction', payload.message || JSON.stringify(payload), 'contexts', {content: payload});
       else if (!['session_meta', 'turn_context', 'event_msg'].includes(record.type)) add(record, 'context', type || record.type, JSON.stringify(payload, null, 2), 'contexts', {content: payload});
     }
     const modelIdentity = new Map();

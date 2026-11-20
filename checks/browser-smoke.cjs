@@ -18,12 +18,12 @@ async function checkSession(page, id, model) {
   await page.getByRole('heading', {name: id, exact: true}).waitFor();
   assert.match(await page.locator('#session-chips').innerText(), new RegExp(model));
   assert.match(await page.locator('#session-chips').innerText(), /CLI 1\.2\.3/);
-  assert.match(await page.locator('#session-summary').innerText(), /消息\s*1/);
+  assert.match(await page.locator('#session-summary').innerText(), /Messages\s*1/);
   assert.equal(await page.locator('#session-list button[aria-current=true] strong').textContent(), id);
 }
 
 test('standalone report reads embedded sessions, filters imports, and reopens its export', async () => {
-  const {createPage} = await import('../page.mjs');
+  const {createPage} = await import('../src/server/page.mjs');
   const directory = await mkdtemp(path.join(tmpdir(), 'agenttrace-browser-'));
   let browser;
   try {
@@ -48,7 +48,7 @@ test('standalone report reads embedded sessions, filters imports, and reopens it
     await checkSession(page, 'embedded-session', 'embedded-model');
     assert.equal(await page.locator('#session-list button').count(), 1);
     await page.locator('#session-search').fill('no match');
-    await page.locator('#session-list').getByText('没有匹配的会话。').waitFor();
+    await page.locator('#session-list').getByText('No matching sessions.').waitFor();
     await page.locator('#session-search').fill('');
     const downloadReady = page.waitForEvent('download');
     await page.getByRole('button', {name: 'Export'}).click();
@@ -58,6 +58,7 @@ test('standalone report reads embedded sessions, filters imports, and reopens it
     const html = await readFile(exported, 'utf8');
     assert.doesNotMatch(html, /<script\b[^>]*\bsrc\s*=|<link\b[^>]*rel=["']stylesheet|id="server-config"/i);
     await page.goto(pathToFileURL(exported).href);
+    assert.equal(await page.locator('html').getAttribute('lang'), 'en');
     await checkSession(page, 'embedded-session', 'embedded-model');
     assert.equal(await page.locator('#session-list button').count(), 1);
     await page.getByRole('button', {name: 'Settings'}).click();
@@ -71,7 +72,7 @@ test('standalone report reads embedded sessions, filters imports, and reopens it
 });
 
 test('localhost page handles lazy selection and an empty catalog', async () => {
-  const {startServer} = await import('../start.mjs');
+  const {startServer} = await import('../src/server/start.mjs');
   const directory = await mkdtemp(path.join(tmpdir(), 'agenttrace-browser-server-'));
   let browser, running;
   try {
@@ -88,7 +89,7 @@ test('localhost page handles lazy selection and an empty catalog', async () => {
     await page.route('**/api/sessions/*', async route => { await gate; await route.continue(); });
     try {
       await page.goto(running.url);
-      await page.getByRole('heading', {name: /^正在加载/}).waitFor();
+      await page.getByRole('heading', {name: /^Loading/}).waitFor();
       assert.equal(await page.locator('#export').isDisabled(), true);
     } finally { release(); }
     await checkSession(page, 'server-session', 'server-model');
@@ -96,11 +97,11 @@ test('localhost page handles lazy selection and an empty catalog', async () => {
     await page.waitForFunction(() => !document.getElementById('settings-save').disabled);
     assert.equal(await realpath(await page.locator('#settings-session-root').inputValue()), await realpath(directory));
     await page.locator('#settings-save').click();
-    await page.getByText('配置已保存，请在 Session 列表刷新。').waitFor();
+    await page.getByText('Settings saved. Refresh the session list.').waitFor();
     await page.locator('#settings-close').click();
     await rm(input);
     await page.locator('#session-refresh').click();
-    await page.getByRole('heading', {name: '尚未找到会话'}).waitFor();
+    await page.getByRole('heading', {name: 'No sessions found'}).waitFor();
     assert.equal(await page.locator('#session-summary').innerText(), '');
     assert.equal(await page.locator('#export').isDisabled(), true);
     assert.deepEqual(errors, []);

@@ -3,8 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const vm = require('node:vm');
-const {parseRollout} = require('../parser.js');
-const {buildReplay} = require('../replay.js');
+const {parseRollout} = require('../src/core/parser.js');
+const {buildReplay} = require('../src/core/replay.js');
 
 function embeddedData(html) {
   const match = html.match(/<script id="embedded-rollout" type="application\/json">([\s\S]*?)<\/script>/);
@@ -28,7 +28,7 @@ function checkStandalonePage(html) {
 }
 
 test('standalone page embeds application assets and preserves log text as data', async () => {
-  const {createPage} = await import('../page.mjs');
+  const {createPage} = await import('../src/server/page.mjs');
   const name = 'literal-$&.jsonl';
   const message = '</script><script>alert(1)</script> $& $` /*TURNS_DATA*/ " & <';
   const text = JSON.stringify({timestamp: '2026-11-05T11:38:50.000Z', type: 'response_item', payload: {type: 'message', role: 'user', content: [{text: message}]}});
@@ -45,9 +45,10 @@ test('standalone page embeds application assets and preserves log text as data',
 
 test('product code has no external player source or template imports', async () => {
   const root = path.resolve(__dirname, '..');
-  const files = ['index.html', 'style.css', 'frontend/src/App.vue', 'replay.js', 'formatter.js', 'trace-parser.js', 'page.mjs', 'trace-loader.mjs', 'start.mjs'];
+  const sourceRoot = path.join(root, 'src');
+  const files = ['client/index.html', 'client/style.css', 'client/App.vue', 'core/replay.js', 'core/formatter.js', 'core/trace-parser.js', 'server/page.mjs', 'server/trace-loader.mjs', 'server/start.mjs'];
   for (const file of files) {
-    const source = await fs.readFile(path.join(root, file), 'utf8');
+    const source = await fs.readFile(path.join(sourceRoot, file), 'utf8');
     assert.doesNotMatch(source, /claude-replay|vendor\/|playerAssets|renderReplay|srcdoc|REPLAY_ASSETS|TURNS_DATA/);
   }
   await assert.rejects(fs.access(path.join(root, 'vendor')));
