@@ -1,0 +1,21 @@
+{
+  "name": "agenttrace",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "verify:framework": "node --test tests/artifacts.cjs",
+    "test:browser": "node --test checks/*.cjs",
+    "test": "node --test tests/*.cjs",
+    "start": "node start.mjs"
+  },
+  "dependencies": {
+    "vue": "3.5.13"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "5.2.4",
+    "vite": "6.4.5"
+  }
+}
