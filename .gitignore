@@ -21,6 +21,9 @@ rollout-*.jsonl
 
 # Local tooling and operating system files
 /.agents/
-/.claude/
+/.claude/*
+!/.claude/skills/
+/.claude/skills/*
+!/.claude/skills/verify-tool-result-boundary/
 .DS_Store
 Thumbs.db
